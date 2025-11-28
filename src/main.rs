@@ -1,4 +1,4 @@
-use std::fs;
+use std::{arch::x86_64::_MM_FROUND_CEIL, fs};
 
 
 enum Token {
@@ -85,67 +85,85 @@ impl<'a> Lexer<'a> {
         self.cur
     }
 
+    // トークンを一つ読み取る
     fn next_token(&mut self) -> Option<Token> {
-        // トークン化のロジックをここに実装
+
+        let mut ret = None;
 
         // 現在の文字インデックス（次に読む文字のインデックス）を開始位置として記録
         let start_char_idx = self.pos_index();
         let start_line = self.line;
         let start_column = self.column;
 
-        match self.next_char() {
-            Some('/') => {
-                if let Some('*') = self.peek() {
-                    // ブロックコメントの開始
-                    // '*' を消費
-                    self.next_char();
+        loop {
+            match self.next_char() {
+                Some(' ') | Some('\t') | Some('\n') | Some('\r') => {
+                    // 空白文字はスキップ
+                    continue;
+                },
+                Some('/') => {
+                    if let Some('*') = self.peek() {
+                        // ブロックコメントの開始
+                        // '*' を消費
+                        self.next_char();
 
-                    // コメントの終わりを探す
-                    while let Some(ch) = self.next_char() {
-                        if ch == '*' {
-                            if let Some('/') = self.peek() {
-                                // '/' を消費してコメントを終える
-                                self.next_char();
-
-                                // start_byte を char_offsets から取り出す
-                                let start_byte = if start_char_idx < self.char_offsets.len() {
-                                    self.char_offsets[start_char_idx]
-                                } else {
-                                    self.input.len()
-                                };
-
-                                // end_byte は現在の self.cur のバイトオフセット（self.cur は次に読む文字のインデックス）
-                                let end_byte = if self.cur < self.char_offsets.len() {
-                                    self.char_offsets[self.cur]
-                                } else {
-                                    self.input.len()
-                                };
-
-                                let length = end_byte.saturating_sub(start_byte);
-
-                                let end_line = self.line;
-                                let end_column = self.column;
-                                return Some(Token::BlockComment {
-                                    start_line,
-                                    start_column,
-                                    end_line,
-                                    end_column,
-                                    offset: start_byte,
-                                    length,
-                                });
+                        let mut found = false;
+    
+                        // コメントの終わりを探す
+                        while let Some(ch) = self.next_char() {
+                            if ch == '*' {
+                                if let Some('/') = self.peek() {
+                                    // '/' を消費してコメントを終える
+                                    self.next_char();
+    
+                                    // start_byte を char_offsets から取り出す
+                                    let start_byte = if start_char_idx < self.char_offsets.len() {
+                                        self.char_offsets[start_char_idx]
+                                    } else {
+                                        self.input.len()
+                                    };
+    
+                                    // end_byte は現在の self.cur のバイトオフセット（self.cur は次に読む文字のインデックス）
+                                    let end_byte = if self.cur < self.char_offsets.len() {
+                                        self.char_offsets[self.cur]
+                                    } else {
+                                        self.input.len()
+                                    };
+    
+                                    let length = end_byte.saturating_sub(start_byte);
+    
+                                    let end_line = self.line;
+                                    let end_column = self.column;
+                                    ret = Some(Token::BlockComment {
+                                        start_line,
+                                        start_column,
+                                        end_line,
+                                        end_column,
+                                        offset: start_byte,
+                                        length,
+                                    });
+                                    found = true;
+                                    break;
+                                }
                             }
                         }
+                        
+                        // コメントが閉じられなかった場合は None を返す
+                        if !found {
+                            ret = None;
+                        }
+
+                    } else {
+                        // 他のトークン処理へ（ここでは省略）
+                        return None
                     }
-                    // コメントが閉じられなかった場合は None を返す
-                    None
-                } else {
-                    // 他のトークン処理へ（ここでは省略）
-                    None
-                }
-            },
-            None => None,
-            _ => None, // 他のトークン処理へ（ここでは省略）
+                },
+                None => break,
+                _ => break, // 他のトークン処理へ（ここでは省略）
+            }
         }
+
+        ret
     }
 }
 
@@ -360,6 +378,29 @@ mod tests {
                     assert_eq!(offset, 0);
                     assert_eq!(length, 18);
                     assert_eq!(&s[offset..offset+length], "/* コメント */");
+                    return;
+                }
+            }
+        }
+        panic!("Block comment token not found");
+    }
+
+        #[test]
+    fn test_lexer_block_comment_japanese_with_spaces() {
+        let s = "\t\r\n /* コメント */";
+        let mut lx = Lexer::new(s);
+
+        // Skip to the block comment
+        while let Some(token) = lx.next_token() {
+            match token {
+                Token::BlockComment { start_line, start_column, end_line, end_column , offset, length} => {
+                    assert_eq!(start_line, 0);
+                    assert_eq!(start_column, 0);
+                    assert_eq!(end_line, 1);
+                    assert_eq!(end_column, 11);
+                    assert_eq!(offset, 0);
+                    assert_eq!(length, 22);
+                    assert_eq!(&s[offset..offset+length], "\t\r\n /* コメント */");
                     return;
                 }
             }
