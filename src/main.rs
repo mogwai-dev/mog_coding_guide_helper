@@ -237,14 +237,44 @@ impl Formatter {
     }
 
     fn format_tu(&self, tu: &TranslationUnit) -> String {
-        // フォーマットロジックをここに実装
-        String::new()
+        let mut s = String::new();
+        for item in &tu.items {
+            match item {
+                Item::BlockComment { text, .. } => {
+                    // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
+                    let first_non_ws = text
+                        .char_indices()
+                        .find(|&(_, ch)| !ch.is_whitespace())
+                        .map(|(i, _)| i)
+                        .unwrap_or(text.len());
+
+                    // 先頭の空白部分から改行だけ取り出して保持する
+                    let leading = &text[..first_non_ws];
+                    let kept_newlines: String = leading.chars().filter(|&c| c == '\n').collect();
+
+                    // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
+                    s.push_str(&kept_newlines);
+                    s.push_str(&text[first_non_ws..]);
+                }
+            }
+        }
+        s
     }
 
     // AST から元のコードを再構築
     fn original_tu(&self, tu: &TranslationUnit) -> String {
         // 元のコードを再構築するロジックをここに実装
-        String::new()
+        let mut s = String::new();
+        for item in &tu.items {
+            match item {
+                Item::BlockComment { text, .. } => {
+                    s.push_str(text);
+                }
+            }
+        }
+
+        s
+
     }
 }
 
@@ -408,4 +438,44 @@ mod tests {
         panic!("Block comment token not found");
     }
 
+    #[test]
+    fn test_formatter_format_tu_trims_leading_whitespace() {
+        let span = Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0, offset: 0, length: 0 };
+        let item = Item::BlockComment { span, text: String::from("   /* hello */") };
+        let tu = TranslationUnit { items: vec![item] };
+        let fmt = Formatter::new();
+        let out = fmt.format_tu(&tu);
+        assert_eq!(out, "/* hello */");
+    }
+
+    #[test]
+    fn test_formatter_original_tu_preserves_texts() {
+        let span = Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0, offset: 0, length: 0 };
+        let item1 = Item::BlockComment { span: span.clone(), text: String::from("/* one */") };
+        let item2 = Item::BlockComment { span, text: String::from("/* two */") };
+        let tu = TranslationUnit { items: vec![item1, item2] };
+        let fmt = Formatter::new();
+        let out = fmt.original_tu(&tu);
+        assert_eq!(out, "/* one *//* two */");
+    }
+
+    #[test]
+    fn test_formatter_keeps_newline_in_leading_whitespace() {
+        let span = Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0, offset: 0, length: 0 };
+        let item = Item::BlockComment { span, text: String::from("\t\r\n /* hello */") };
+        let tu = TranslationUnit { items: vec![item] };
+        let fmt = Formatter::new();
+        let out = fmt.format_tu(&tu);
+        assert_eq!(out, "\n/* hello */");
+    }
+
+    #[test]
+    fn test_formatter_keeps_multiple_newlines() {
+        let span = Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0, offset: 0, length: 0 };
+        let item = Item::BlockComment { span, text: String::from("\n\n  /* ok */") };
+        let tu = TranslationUnit { items: vec![item] };
+        let fmt = Formatter::new();
+        let out = fmt.format_tu(&tu);
+        assert_eq!(out, "\n\n/* ok */");
+    }
 }
