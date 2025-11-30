@@ -1,9 +1,9 @@
-use std::{arch::x86_64::_MM_FROUND_CEIL, fs};
+use std::{fs};
 
 
 enum Token {
     BlockComment{start_line: usize, start_column: usize, end_line: usize, end_column: usize, offset: usize, length: usize},
-    
+    Include{start_line: usize, start_column: usize, end_line: usize, end_column: usize, offset: usize, length: usize, filename: String},
 }
 
 #[derive(Debug)]
@@ -115,26 +115,28 @@ impl<'a> Lexer<'a> {
                                 if let Some('/') = self.peek() {
                                     // '/' を消費してコメントを終える
                                     self.next_char();
-    
+
                                     // start_byte を char_offsets から取り出す
                                     let start_byte = if start_char_idx < self.char_offsets.len() {
                                         self.char_offsets[start_char_idx]
                                     } else {
                                         self.input.len()
                                     };
-    
+
                                     // end_byte は現在の self.cur のバイトオフセット（self.cur は次に読む文字のインデックス）
                                     let end_byte = if self.cur < self.char_offsets.len() {
                                         self.char_offsets[self.cur]
                                     } else {
                                         self.input.len()
                                     };
-    
+
                                     let length = end_byte.saturating_sub(start_byte);
-    
+
                                     let end_line = self.line;
                                     let end_column = self.column;
-                                    ret = Some(Token::BlockComment {
+
+                                    // ここで即座に返す
+                                    return Some(Token::BlockComment {
                                         start_line,
                                         start_column,
                                         end_line,
@@ -142,21 +144,101 @@ impl<'a> Lexer<'a> {
                                         offset: start_byte,
                                         length,
                                     });
-                                    found = true;
-                                    break;
                                 }
                             }
                         }
                         
                         // コメントが閉じられなかった場合は None を返す
-                        if !found {
-                            ret = None;
-                        }
-
+                        return None;
                     } else {
                         // 他のトークン処理へ（ここでは省略）
                         return None
                     }
+                },
+                Some('#') => {
+                    // include 文の開始（行末まで読み取る、簡易版）
+                    let mut include_text = String::new();
+                    include_text.push('#');
+
+                    while let Some(ch) = self.next_char() {
+                        if ch == '\n' {
+                            break;
+                        }
+                        include_text.push(ch);
+                    }
+
+                    // 例:
+                    //  "#include <stdio.h>"  -> filename = "stdio.h"
+                    //  "#include \"file.h\"" -> filename = "file.h"
+                    //  その他は # を取り除いてトリムしたものを filename にする
+                    let content = include_text.trim_start_matches('#').trim();
+                    let mut filename = content.to_string();
+
+                    if let Some(rest) = content.strip_prefix("include") {
+                        let rest = rest.trim();
+                        if rest.starts_with('<') {
+                            // <...>
+                            if let Some(end) = rest.find('>') {
+                                if end > 1 {
+                                    filename = rest[1..end].to_string();
+                                } else {
+                                    filename = String::new();
+                                }
+                            } else {
+                                // 閉じる '>' が無ければ残り全部を filename とする（堅牢性）
+                                filename = rest[1..].to_string();
+                            }
+                        } else if rest.starts_with('"') {
+                            // "..."
+                            if rest.len() >= 2 && rest.ends_with('"') {
+                                filename = rest[1..rest.len()-1].to_string();
+                            } else {
+                                // 終端の " が無ければ次の " までを取り出す
+                                let mut acc = String::new();
+                                for c in rest.chars().skip(1) {
+                                    if c == '"' { break; }
+                                    acc.push(c);
+                                }
+                                filename = acc;
+                            }
+                        } else {
+                            // #include のあとに直接ファイル名が来る場合
+                            filename = rest.to_string();
+                        }
+                    } else {
+                        // 他の # プリプロセッサ的な行（#pragma など）はそのまま保持
+                        filename = content.to_string();
+                    }
+
+                    // start_byte を char_offsets から取り出す
+                    let start_byte = if start_char_idx < self.char_offsets.len() {
+                        self.char_offsets[start_char_idx]
+                    } else {
+                        self.input.len()
+                    };
+
+                    // end_byte は現在の self.cur のバイトオフセット（self.cur は次に読む文字のインデックス）
+                    let end_byte = if self.cur < self.char_offsets.len() {
+                        self.char_offsets[self.cur]
+                    } else {
+                        self.input.len()
+                    };
+
+                    let length = end_byte.saturating_sub(start_byte);
+
+                    let end_line = self.line;
+                    let end_column = self.column;
+
+                    // ここで即座に返す
+                    return Some(Token::Include {
+                        start_line,
+                        start_column,
+                        end_line,
+                        end_column,
+                        offset: start_byte,
+                        length,
+                        filename,
+                    });
                 },
                 None => break,
                 _ => break, // 他のトークン処理へ（ここでは省略）
@@ -176,6 +258,7 @@ struct TranslationUnit {
 #[derive(Debug)]
 enum Item {
     BlockComment { span: Span, text: String },
+    Include { span: Span, text: String, filename: String },
 }
 
 // ルートとノードを定義。所有する Span を持たせる（ライフタイム回避のため String/span を所有）
@@ -215,6 +298,21 @@ impl<'a> Parser<'a> {
                     };
                     let text = self.lexer.input[offset..offset+length].to_string();
                     items.push(Item::BlockComment { span, text });
+                },
+                Token::Include { start_line, start_column, end_line, end_column, offset, length, filename } => {
+                    let span = Span {
+                        start_line,
+                        start_column,
+                        end_line,
+                        end_column,
+                        offset,
+                        length,
+                    };
+                    
+                    let text = self.lexer.input[offset..offset+length].to_string();
+
+                    items.push(Item::Include { span, text, filename });
+
                 }
             }
         }
@@ -255,6 +353,22 @@ impl Formatter {
                     // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
                     s.push_str(&kept_newlines);
                     s.push_str(&text[first_non_ws..]);
+                },
+                Item::Include { span, text, filename } => {
+                    // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
+                    let first_non_ws = text
+                        .char_indices()
+                        .find(|&(_, ch)| !ch.is_whitespace())
+                        .map(|(i, _)| i)
+                        .unwrap_or(text.len());
+
+                    // 先頭の空白部分から改行だけ取り出して保持する
+                    let leading = &text[..first_non_ws];
+                    let kept_newlines: String = leading.chars().filter(|&c| c == '\n').collect();
+
+                    // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
+                    s.push_str(&kept_newlines);
+                    s.push_str(&text[first_non_ws..]);       
                 }
             }
         }
@@ -267,7 +381,7 @@ impl Formatter {
         let mut s = String::new();
         for item in &tu.items {
             match item {
-                Item::BlockComment { text, .. } => {
+                Item::BlockComment { text, .. } | Item::Include { text, .. }=> {
                     s.push_str(text);
                 }
             }
@@ -294,6 +408,9 @@ fn lexer_sample() {
         match token {
             Token::BlockComment { start_line, start_column, end_line, end_column , offset, length} => {
                 println!("Block comment from ({}, {}) to ({}, {}): {}", start_line, start_column, end_line, end_column, &contents[offset..offset+length]);
+            },
+            Token::Include { start_line, start_column, end_line, end_column, offset, length, filename } => {
+                println!("Include from ({}, {}) to ({}, {}): {} (filename: {})", start_line, start_column, end_line, end_column, &contents[offset..offset+length], filename);
             }
         }
     }
@@ -310,6 +427,9 @@ fn parser_sample() {
         match item {
             Item::BlockComment { span, text  } => {
                 println!("Block comment from ({}, {}) to ({}, {}): {} ", span.start_line, span.start_column, span.end_line, span.end_column, text);
+            },
+            Item::Include { span, text, filename } => {
+                println!("Include from ({}, {}) to ({}, {}): {} (filename: {})", span.start_line, span.start_column, span.end_line, span.end_column, text, filename);
             }
         }
     }
@@ -386,13 +506,16 @@ mod tests {
                     assert_eq!(length, 13);
                     assert_eq!(&s[offset..offset+length], "/* comment */");
                     return;
+                },
+                _ => {
+                    panic!("Unexpected token");
                 }
             }
         }
         panic!("Block comment token not found");
     }
 
-        #[test]
+    #[test]
     fn test_lexer_block_comment_japanese() {
         let s = "/* コメント */";
         let mut lx = Lexer::new(s);
@@ -410,12 +533,15 @@ mod tests {
                     assert_eq!(&s[offset..offset+length], "/* コメント */");
                     return;
                 }
+                _ => {
+                    panic!("Unexpected token");
+                }
             }
         }
         panic!("Block comment token not found");
     }
 
-        #[test]
+    #[test]
     fn test_lexer_block_comment_japanese_with_spaces() {
         let s = "\t\r\n /* コメント */";
         let mut lx = Lexer::new(s);
@@ -432,6 +558,9 @@ mod tests {
                     assert_eq!(length, 22);
                     assert_eq!(&s[offset..offset+length], "\t\r\n /* コメント */");
                     return;
+                },
+                _ => {
+                    panic!("Unexpected token");
                 }
             }
         }
@@ -477,5 +606,101 @@ mod tests {
         let fmt = Formatter::new();
         let out = fmt.format_tu(&tu);
         assert_eq!(out, "\n\n/* ok */");
+    }
+
+    #[test]
+    fn test_lexer_include_angle() {
+        let s = "#include <stdio.h>\n";
+        let mut lx = Lexer::new(s);
+
+        while let Some(token) = lx.next_token() {
+            match token {
+                Token::Include { start_line, start_column, end_line, end_column, offset, length, filename } => {
+                    assert_eq!(start_line, 0);
+                    assert_eq!(start_column, 0);
+                    assert_eq!(filename, "stdio.h");
+                    assert_eq!(offset, 0);
+                    assert_eq!(length, s.len());
+                    assert_eq!(&s[offset..offset+length], "#include <stdio.h>\n");
+                    return;
+                }
+                _ => {}
+            }
+        }
+        panic!("Include token not found");
+    }
+
+    #[test]
+    fn test_lexer_include_quote() {
+        let s = "#include \"file.h\"\n";
+        let mut lx = Lexer::new(s);
+
+        while let Some(token) = lx.next_token() {
+            match token {
+                Token::Include { filename, offset, length, .. } => {
+                    assert_eq!(filename, "file.h");
+                    assert_eq!(&s[offset..offset+length], "#include \"file.h\"\n");
+                    return;
+                }
+                _ => {}
+            }
+        }
+        panic!("Include token not found");
+    }
+
+    #[test]
+    fn test_lexer_include_missing_closer() {
+        // missing closing '>' or '"', lexer should take rest as filename
+        let s1 = "#include <path/to/file\n";
+        let mut lx1 = Lexer::new(s1);
+        while let Some(token) = lx1.next_token() {
+            match token {
+                Token::Include { filename, offset, length, .. } => {
+                    assert_eq!(filename, "path/to/file");
+                    assert_eq!(&s1[offset..offset+length], "#include <path/to/file\n");
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        let s2 = "#include \"another/path\n";
+        let mut lx2 = Lexer::new(s2);
+        while let Some(token) = lx2.next_token() {
+            match token {
+                Token::Include { filename, offset, length, .. } => {
+                    assert_eq!(filename, "another/path");
+                    assert_eq!(&s2[offset..offset+length], "#include \"another/path\n");
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn test_parser_includes_produced_items() {
+        let s = "#include \"a.h\"\n#include <b.h>\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 2);
+
+        match &tu.items[0] {
+            Item::Include { text, filename, .. } => {
+                assert_eq!(filename, "a.h");
+                assert_eq!(text, "#include \"a.h\"\n");
+            }
+            _ => panic!("first item is not Include"),
+        }
+
+        match &tu.items[1] {
+            Item::Include { text, filename, .. } => {
+                assert_eq!(filename, "b.h");
+                assert_eq!(text, "#include <b.h>\n");
+            }
+            _ => panic!("second item is not Include"),
+        }
     }
 }
