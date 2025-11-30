@@ -1,2 +1,5 @@
-/* こんにちは */
-/* */
+/* はじまり */
+#define A B
+#include "XXX.h" // XXX.h をインクルード
+#include <YYY.h> /* YYY.h をインクルード */
+/* おわり */

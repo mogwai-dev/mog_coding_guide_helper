@@ -4,6 +4,7 @@ use std::{fs};
 enum Token {
     BlockComment{start_line: usize, start_column: usize, end_line: usize, end_column: usize, offset: usize, length: usize},
     Include{start_line: usize, start_column: usize, end_line: usize, end_column: usize, offset: usize, length: usize, filename: String},
+    Define{start_line: usize, start_column: usize, end_line: usize, end_column: usize, offset: usize, length: usize, macro_name: String, macro_value: String},
 }
 
 #[derive(Debug)]
@@ -156,28 +157,40 @@ impl<'a> Lexer<'a> {
                     }
                 },
                 Some('#') => {
-                    // include 文の開始（行末まで読み取る、簡易版）
-                    let mut include_text = String::new();
-                    include_text.push('#');
+                    // ディレクティブを行末まで読み取る（先頭の空白は start_char_idx でカバーされる）
+                    let mut directive_text = String::new();
+                    directive_text.push('#');
 
                     while let Some(ch) = self.next_char() {
+                        directive_text.push(ch);
                         if ch == '\n' {
                             break;
                         }
-                        include_text.push(ch);
                     }
 
-                    // 例:
-                    //  "#include <stdio.h>"  -> filename = "stdio.h"
-                    //  "#include \"file.h\"" -> filename = "file.h"
-                    //  その他は # を取り除いてトリムしたものを filename にする
-                    let content = include_text.trim_start_matches('#').trim();
-                    let mut filename = content.to_string();
+                    // directive の中身（# を取り除いた後）を解析用に取得（先頭空白は trim_start する）
+                    let content = directive_text.trim_start_matches('#').trim_start().to_string();
 
+                    // バイトオフセットを計算
+                    let start_byte = if start_char_idx < self.char_offsets.len() {
+                        self.char_offsets[start_char_idx]
+                    } else {
+                        self.input.len()
+                    };
+                    let end_byte = if self.cur < self.char_offsets.len() {
+                        self.char_offsets[self.cur]
+                    } else {
+                        self.input.len()
+                    };
+                    let length = end_byte.saturating_sub(start_byte);
+                    let end_line = self.line;
+                    let end_column = self.column;
+
+                    // #include の処理（既存の挙動を保持）
                     if let Some(rest) = content.strip_prefix("include") {
                         let rest = rest.trim();
+                        let mut filename = rest.to_string();
                         if rest.starts_with('<') {
-                            // <...>
                             if let Some(end) = rest.find('>') {
                                 if end > 1 {
                                     filename = rest[1..end].to_string();
@@ -185,15 +198,12 @@ impl<'a> Lexer<'a> {
                                     filename = String::new();
                                 }
                             } else {
-                                // 閉じる '>' が無ければ残り全部を filename とする（堅牢性）
                                 filename = rest[1..].to_string();
                             }
                         } else if rest.starts_with('"') {
-                            // "..."
                             if rest.len() >= 2 && rest.ends_with('"') {
                                 filename = rest[1..rest.len()-1].to_string();
                             } else {
-                                // 終端の " が無ければ次の " までを取り出す
                                 let mut acc = String::new();
                                 for c in rest.chars().skip(1) {
                                     if c == '"' { break; }
@@ -202,34 +212,42 @@ impl<'a> Lexer<'a> {
                                 filename = acc;
                             }
                         } else {
-                            // #include のあとに直接ファイル名が来る場合
                             filename = rest.to_string();
                         }
-                    } else {
-                        // 他の # プリプロセッサ的な行（#pragma など）はそのまま保持
-                        filename = content.to_string();
+
+                        return Some(Token::Include {
+                            start_line,
+                            start_column,
+                            end_line,
+                            end_column,
+                            offset: start_byte,
+                            length,
+                            filename,
+                        });
                     }
 
-                    // start_byte を char_offsets から取り出す
-                    let start_byte = if start_char_idx < self.char_offsets.len() {
-                        self.char_offsets[start_char_idx]
-                    } else {
-                        self.input.len()
-                    };
+                    // #define の処理：先頭の空白は token の offset/length に含まれる（start_byte がそれを指す）
+                    if let Some(rest) = content.strip_prefix("define") {
+                        let rest = rest.trim();
+                        let mut parts = rest.splitn(2, ' ');
+                        if let (Some(name), Some(value)) = (parts.next(), parts.next()) {
+                            let macro_name = name.to_string();
+                            let macro_value = value.to_string();
 
-                    // end_byte は現在の self.cur のバイトオフセット（self.cur は次に読む文字のインデックス）
-                    let end_byte = if self.cur < self.char_offsets.len() {
-                        self.char_offsets[self.cur]
-                    } else {
-                        self.input.len()
-                    };
+                            return Some(Token::Define {
+                                start_line,
+                                start_column,
+                                end_line,
+                                end_column,
+                                offset: start_byte,
+                                length,
+                                macro_name,
+                                macro_value,
+                            });
+                        }
+                    }
 
-                    let length = end_byte.saturating_sub(start_byte);
-
-                    let end_line = self.line;
-                    let end_column = self.column;
-
-                    // ここで即座に返す
+                    // それ以外の # 系ディレクティブはとりあえず Include 風に生テキストを残す（既存互換）
                     return Some(Token::Include {
                         start_line,
                         start_column,
@@ -237,7 +255,7 @@ impl<'a> Lexer<'a> {
                         end_column,
                         offset: start_byte,
                         length,
-                        filename,
+                        filename: content,
                     });
                 },
                 None => break,
@@ -259,6 +277,8 @@ struct TranslationUnit {
 enum Item {
     BlockComment { span: Span, text: String },
     Include { span: Span, text: String, filename: String },
+    // 追加：Define ノード（span と生テキスト、それと分離したマクロ名/展開値を保持）
+    Define { span: Span, text: String, macro_name: String, macro_value: String },
 }
 
 // ルートとノードを定義。所有する Span を持たせる（ライフタイム回避のため String/span を所有）
@@ -313,6 +333,18 @@ impl<'a> Parser<'a> {
 
                     items.push(Item::Include { span, text, filename });
 
+                },
+                Token::Define { start_line, start_column, end_line, end_column, offset, length, macro_name, macro_value } => {
+                    let span = Span {
+                        start_line,
+                        start_column,
+                        end_line,
+                        end_column,
+                        offset,
+                        length,
+                    };
+                    let text = self.lexer.input[offset..offset+length].to_string();
+                    items.push(Item::Define { span, text, macro_name, macro_value });
                 }
             }
         }
@@ -369,6 +401,22 @@ impl Formatter {
                     // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
                     s.push_str(&kept_newlines);
                     s.push_str(&text[first_non_ws..]);       
+                },
+                Item::Define { span, text, macro_name, macro_value } => {
+                                        // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
+                    let first_non_ws = text
+                        .char_indices()
+                        .find(|&(_, ch)| !ch.is_whitespace())
+                        .map(|(i, _)| i)
+                        .unwrap_or(text.len());
+
+                    // 先頭の空白部分から改行だけ取り出して保持する
+                    let leading = &text[..first_non_ws];
+                    let kept_newlines: String = leading.chars().filter(|&c| c == '\n').collect();
+
+                    // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
+                    s.push_str(&kept_newlines);
+                    s.push_str(&text[first_non_ws..]);      
                 }
             }
         }
@@ -381,7 +429,7 @@ impl Formatter {
         let mut s = String::new();
         for item in &tu.items {
             match item {
-                Item::BlockComment { text, .. } | Item::Include { text, .. }=> {
+                Item::BlockComment { text, .. } | Item::Include { text, .. } | Item::Define { text, .. }=> {
                     s.push_str(text);
                 }
             }
@@ -411,6 +459,9 @@ fn lexer_sample() {
             },
             Token::Include { start_line, start_column, end_line, end_column, offset, length, filename } => {
                 println!("Include from ({}, {}) to ({}, {}): {} (filename: {})", start_line, start_column, end_line, end_column, &contents[offset..offset+length], filename);
+            },
+            Token::Define { start_line, start_column, end_line, end_column, offset, length, macro_name, macro_value } => {
+                println!("Define from ({}, {}) to ({}, {}): {} (macro: {}, value: {})", start_line, start_column, end_line, end_column, &contents[offset..offset+length], macro_name, macro_value);
             }
         }
     }
@@ -430,6 +481,9 @@ fn parser_sample() {
             },
             Item::Include { span, text, filename } => {
                 println!("Include from ({}, {}) to ({}, {}): {} (filename: {})", span.start_line, span.start_column, span.end_line, span.end_column, text, filename);
+            },
+            Item::Define { span, text, macro_name, macro_value } => {
+                println!("Define from ({}, {}) to ({}, {}): {} (macro: {}, value: {})", span.start_line, span.start_column, span.end_line, span.end_column, text, macro_name, macro_value);
             }
         }
     }
@@ -702,5 +756,84 @@ mod tests {
             }
             _ => panic!("second item is not Include"),
         }
+    }
+
+    #[test]
+    fn test_lexer_define_simple() {
+        let s = "#define MAX 10\n";
+        let mut lx = Lexer::new(s);
+
+        while let Some(token) = lx.next_token() {
+            match token {
+                Token::Define { macro_name, macro_value, offset, length, .. } => {
+                    assert_eq!(macro_name, "MAX");
+                    assert_eq!(macro_value, "10");
+                    assert_eq!(&s[offset..offset+length], "#define MAX 10\n");
+                    return;
+                }
+                _ => {}
+            }
+        }
+        panic!("Define token not found");
+    }
+
+    #[test]
+    fn test_lexer_define_leading_whitespace_included() {
+        let s = "\t \r #define X 1\n";
+        let mut lx = Lexer::new(s);
+
+        while let Some(token) = lx.next_token() {
+            match token {
+                Token::Define { macro_name, macro_value, offset, length, .. } => {
+                    // offset should include leading whitespace (lexer records start before skipping)
+                    assert_eq!(macro_name, "X");
+                    assert_eq!(macro_value, "1");
+                    assert_eq!(&s[offset..offset+length], "\t \r #define X 1\n");
+                    return;
+                }
+                _ => {}
+            }
+        }
+        panic!("Define token not found");
+    }
+
+    #[test]
+    fn test_parser_defines_produced_items() {
+        let s = "#define A 1\n#define B 2\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 2);
+
+        match &tu.items[0] {
+            Item::Define { text, macro_name, macro_value, .. } => {
+                assert_eq!(macro_name, "A");
+                assert_eq!(macro_value, "1");
+                assert_eq!(text, "#define A 1\n");
+            }
+            _ => panic!("first item is not Define"),
+        }
+
+        match &tu.items[1] {
+            Item::Define { text, macro_name, macro_value, .. } => {
+                assert_eq!(macro_name, "B");
+                assert_eq!(macro_value, "2");
+                assert_eq!(text, "#define B 2\n");
+            }
+            _ => panic!("second item is not Define"),
+        }
+    }
+
+    #[test]
+    fn test_formatter_format_define_keeps_newline_only() {
+        let span = Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0, offset: 0, length: 0 };
+        let text = String::from("\t\r\n  #define Z 42\n");
+        let item = Item::Define { span, text: text.clone(), macro_name: "Z".into(), macro_value: "42".into() };
+        let tu = TranslationUnit { items: vec![item] };
+        let fmt = Formatter::new();
+        let out = fmt.format_tu(&tu);
+        // leading \t\r and spaces removed, newline kept, then the rest starts with '#'
+        assert_eq!(out, "\n#define Z 42\n");
     }
 }
