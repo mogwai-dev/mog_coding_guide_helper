@@ -15,6 +15,8 @@ struct Lexer<'a> {
     column: usize,
     line: usize,
     chars: core::str::Chars<'a>,
+    now: Option<char>,
+    peeked: Option<char>,
 }
 
 // Lexer の実装
@@ -22,20 +24,27 @@ struct Lexer<'a> {
 impl<'a> Lexer<'a> {
     fn new(input: &'a str) -> Self {
         let char_offsets: Vec<usize> = input.char_indices().map(|(i, _)| i).collect();
-        let lx = Lexer {
+        let mut lx = Lexer {
             input,
             char_offsets,
             cur: 0,
             column: 0,
             line: 0,
             chars: input.chars(),
+            now: None,
+            peeked: None,
         };
+        lx.next_char(); // 初期化のために一文字進める
         lx
     }
 
     // 先に進めて文字を返す（存在しなければ None）
     fn next_char(&mut self) -> Option<char> {
-        if let Some(ch) = self.chars.next() {
+
+        self.now = self.peeked;
+        self.peeked = self.chars.next();
+ 
+        if let Some(ch) = self.now {
             self.cur += 1;
             if ch == '\n' {
                 self.line += 1;
@@ -50,16 +59,7 @@ impl<'a> Lexer<'a> {
 
     // 次に読む文字を参照する（位置を変えない）
     fn peek(&self) -> Option<char> {
-        if self.cur >= self.char_offsets.len() {
-            None
-        } else {
-            let b = self.char_offsets[self.cur];
-            Some(self.input[b..].chars().next().unwrap())
-        }
-    }
-
-    fn len_chars(&self) -> usize {
-        self.char_offsets.len()
+        self.peeked
     }
 
     fn pos_index(&self) -> usize {
@@ -478,7 +478,6 @@ mod tests {
         let s = "ab\nc";
         let mut lx = Lexer::new(s);
 
-        assert_eq!(lx.len_chars(), 4);
         assert_eq!(lx.peek(), Some('a'));
 
         // read 'a'
@@ -506,7 +505,6 @@ mod tests {
         // 'é' is multibyte in UTF-8
         let s = "aéb";
         let mut lx = Lexer::new(s);
-        assert_eq!(lx.len_chars(), 3);
 
         let mut got = Vec::new();
         while let Some(ch) = lx.next_char() {
