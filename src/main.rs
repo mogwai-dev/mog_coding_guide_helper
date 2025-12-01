@@ -69,8 +69,6 @@ impl<'a> Lexer<'a> {
     // トークンを一つ読み取る
     fn next_token(&mut self) -> Option<Token> {
 
-        let mut ret = None;
-
         // 現在の文字インデックス（次に読む文字のインデックス）を開始位置として記録
         let start_char_idx = self.pos_index();
         let start_line = self.line;
@@ -87,8 +85,6 @@ impl<'a> Lexer<'a> {
                         // ブロックコメントの開始
                         // '*' を消費
                         self.next_char();
-
-                        let mut found = false;
     
                         // コメントの終わりを探す
                         while let Some(ch) = self.next_char() {
@@ -169,7 +165,7 @@ impl<'a> Lexer<'a> {
                     // #include の処理（既存の挙動を保持）
                     if let Some(rest) = content.strip_prefix("include") {
                         let rest = rest.trim();
-                        let mut filename = rest.to_string();
+                        let filename;
                         if rest.starts_with('<') {
                             if let Some(end) = rest.find('>') {
                                 if end > 1 {
@@ -238,18 +234,16 @@ impl<'a> Lexer<'a> {
                         filename: content,
                     });
                 },
-                None => break,
-                _ => break, // 他のトークン処理へ（ここでは省略）
+                None => return None, // 入力の終わり
+                _ => return None, // 他のトークン処理へ（ここでは省略）
             }
         }
-
-        ret
     }
 }
 
 
 #[derive(Debug)]
-struct TranslationUnit {
+pub struct TranslationUnit {
     items: Vec<Item>,
 }
 
@@ -263,13 +257,13 @@ enum Item {
 
 // ルートとノードを定義。所有する Span を持たせる（ライフタイム回避のため String/span を所有）
 #[derive(Debug, Clone)]
-struct Span {
+pub struct Span {
     start_line: usize,
     start_column: usize,
     end_line: usize,
     end_column: usize,
-    offset: usize,
-    length: usize,
+    pub offset: usize, // あとあとで使うかも
+    pub length: usize, // あとあとで使うかも
 }
 
 #[derive(Debug)]
@@ -335,18 +329,18 @@ impl<'a> Parser<'a> {
 }
 
 #[derive(Debug)]
-struct Formatter {
+pub struct Formatter {
 
 }
 
 impl Formatter {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Formatter {
 
         }
     }
 
-    fn format_tu(&self, tu: &TranslationUnit) -> String {
+    pub fn format_tu(&self, tu: &TranslationUnit) -> String {
         let mut s = String::new();
         for item in &tu.items {
             match item {
@@ -366,7 +360,7 @@ impl Formatter {
                     s.push_str(&kept_newlines);
                     s.push_str(&text[first_non_ws..]);
                 },
-                Item::Include { span, text, filename } => {
+                Item::Include { text, ..} => {
                     // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
                     let first_non_ws = text
                         .char_indices()
@@ -382,7 +376,7 @@ impl Formatter {
                     s.push_str(&kept_newlines);
                     s.push_str(&text[first_non_ws..]);       
                 },
-                Item::Define { span, text, macro_name, macro_value } => {
+                Item::Define { text, ..} => {
                                         // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
                     let first_non_ws = text
                         .char_indices()
@@ -404,7 +398,7 @@ impl Formatter {
     }
 
     // AST から元のコードを再構築
-    fn original_tu(&self, tu: &TranslationUnit) -> String {
+    pub fn original_tu(&self, tu: &TranslationUnit) -> String {
         // 元のコードを再構築するロジックをここに実装
         let mut s = String::new();
         for item in &tu.items {
@@ -641,7 +635,7 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Include { start_line, start_column, end_line, end_column, offset, length, filename } => {
+                Token::Include { start_line, start_column, offset, length, filename , ..} => {
                     assert_eq!(start_line, 0);
                     assert_eq!(start_column, 0);
                     assert_eq!(filename, "stdio.h");
