@@ -14,6 +14,7 @@ struct Lexer<'a> {
     cur: usize,               // 次に読む文字のインデックス (0..=len)
     column: usize,
     line: usize,
+    chars: core::str::Chars<'a>,
 }
 
 // Lexer の実装
@@ -21,51 +22,30 @@ struct Lexer<'a> {
 impl<'a> Lexer<'a> {
     fn new(input: &'a str) -> Self {
         let char_offsets: Vec<usize> = input.char_indices().map(|(i, _)| i).collect();
-        let mut lx = Lexer {
+        let lx = Lexer {
             input,
             char_offsets,
             cur: 0,
             column: 0,
             line: 0,
+            chars: input.chars(),
         };
-        lx.update_pos();
         lx
-    }
-
-    // cur に基づいて line と column を更新する
-    fn update_pos(&mut self) {
-        let byte_off = if self.cur < self.char_offsets.len() {
-            self.char_offsets[self.cur]
-        } else {
-            self.input.len()
-        };
-        let prefix = &self.input[..byte_off];
-        self.line = prefix.chars().filter(|&c| c == '\n').count();
-        self.column = prefix.rsplit('\n').next().map(|s| s.chars().count()).unwrap_or(0);
     }
 
     // 先に進めて文字を返す（存在しなければ None）
     fn next_char(&mut self) -> Option<char> {
-        if self.cur >= self.char_offsets.len() {
-            return None;
+        if let Some(ch) = self.chars.next() {
+            self.cur += 1;
+            if ch == '\n' {
+                self.line += 1;
+                self.column = 0;
+            } else {
+                self.column += 1;
+            }
+            return Some(ch);
         }
-        let b = self.char_offsets[self.cur];
-        let ch = self.input[b..].chars().next().unwrap();
-        self.cur += 1;
-        self.update_pos();
-        Some(ch)
-    }
-
-    // 一つ戻ってその文字を返す（存在しなければ None）
-    fn prev_char(&mut self) -> Option<char> {
-        if self.cur == 0 {
-            return None;
-        }
-        self.cur -= 1;
-        let b = self.char_offsets[self.cur];
-        let ch = self.input[b..].chars().next().unwrap();
-        self.update_pos();
-        Some(ch)
+        None
     }
 
     // 次に読む文字を参照する（位置を変えない）
@@ -518,12 +498,6 @@ mod tests {
         assert_eq!(lx.pos_index(), 3);
         assert_eq!(lx.line, 1);
         assert_eq!(lx.column, 0);
-
-        // go back one (to '\n')
-        assert_eq!(lx.prev_char(), Some('\n'));
-        assert_eq!(lx.pos_index(), 2);
-        assert_eq!(lx.line, 0);
-        assert_eq!(lx.column, 2);
 
     }
 
