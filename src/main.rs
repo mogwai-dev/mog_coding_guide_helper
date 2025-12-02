@@ -1,36 +1,58 @@
-use std::{fs};
+use std::{fs, str::CharIndices};
 
 
 enum Token {
-    BlockComment{start_line: usize, start_column: usize, end_line: usize, end_column: usize, offset: usize, length: usize},
-    Include{start_line: usize, start_column: usize, end_line: usize, end_column: usize, offset: usize, length: usize, filename: String},
-    Define{start_line: usize, start_column: usize, end_line: usize, end_column: usize, offset: usize, length: usize, macro_name: String, macro_value: String},
+    
+    BlockComment{
+        start_line: usize,      // 開始行 0 始まり
+        start_column: usize,    // 開始列 0 始まり
+        end_line: usize,        // 終了行 0 始まり
+        end_column: usize,      // column は半開区間 (左閉右開)
+        byte_offset: usize,     // バイトオフセット
+        byte_length: usize      // バイト長
+    },
+    Include{
+        start_line: usize,   // 開始行 0 始まり
+        start_column: usize, // 開始列 0 始まり
+        end_line: usize,     // 終了行 0 始まり
+        end_column: usize,   // column は半開区間 (左閉右開)
+        byte_offset: usize,  // バイトオフセット
+        byte_end_idx: usize, // バイト終了インデックス
+        filename: String     // ファイル名
+    },
+    Define{
+        start_line: usize,      // 開始行 0 始まり
+        start_column: usize,    // 開始列 0 始まり
+        end_line: usize,        // 終了行 0 始まり
+        end_column: usize,      // column は半開区間 (左閉右開)
+        byte_offset: usize,     // バイトオフセット
+        byte_end_idx: usize,    // バイト終了インデックス
+        macro_name: String,      // マクロ名
+        macro_value: String      // マクロ値
+    },
 }
 
 #[derive(Debug)]
 struct Lexer<'a> {
     input: &'a str,
-    char_offsets: Vec<usize>, // 各文字のバイト開始位置
+    char_offsets: CharIndices<'a>, // 文字のバイトオフセットと文字のイテレータ
     cur: usize,               // 次に読む文字のインデックス (0..=len)
     column: usize,
     line: usize,
-    chars: core::str::Chars<'a>,
-    now: Option<char>,
-    peeked: Option<char>,
+    now: Option<(usize, char)>,
+    peeked: Option<(usize, char)>,
 }
 
 // Lexer の実装
 // 文字列をトークンに分ける
 impl<'a> Lexer<'a> {
     fn new(input: &'a str) -> Self {
-        let char_offsets: Vec<usize> = input.char_indices().map(|(i, _)| i).collect();
         let mut lx = Lexer {
             input,
-            char_offsets,
+            char_offsets: input.char_indices(),
             cur: 0,
             column: 0,
             line: 0,
-            chars: input.chars(),
             now: None,
             peeked: None,
         };
@@ -39,12 +61,12 @@ impl<'a> Lexer<'a> {
     }
 
     // 先に進めて文字を返す（存在しなければ None）
-    fn next_char(&mut self) -> Option<char> {
+    fn next_char(&mut self) -> Option<(usize, char)> {
 
         self.now = self.peeked;
-        self.peeked = self.chars.next();
- 
-        if let Some(ch) = self.now {
+        self.peeked = self.char_offsets.next();
+
+        if let Some((_, ch)) = self.now {
             self.cur += 1;
             if ch == '\n' {
                 self.line += 1;
@@ -52,13 +74,13 @@ impl<'a> Lexer<'a> {
             } else {
                 self.column += 1;
             }
-            return Some(ch);
+            return self.now;
         }
         None
     }
 
     // 次に読む文字を参照する（位置を変えない）
-    fn peek(&self) -> Option<char> {
+    fn peek(&self) -> Option<(usize, char)> {
         self.peeked
     }
 
@@ -70,56 +92,52 @@ impl<'a> Lexer<'a> {
     fn next_token(&mut self) -> Option<Token> {
 
         // 現在の文字インデックス（次に読む文字のインデックス）を開始位置として記録
-        let start_char_idx = self.pos_index();
         let start_line = self.line;
         let start_column = self.column;
+        let mut start_byte_flag: Option<usize> = None;
 
         loop {
             match self.next_char() {
-                Some(' ') | Some('\t') | Some('\n') | Some('\r') => {
+                Some((byte_idx, ' ')) | Some((byte_idx, '\t')) | Some((byte_idx, '\n')) | Some((byte_idx, '\r')) => {
                     // 空白文字はスキップ
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
                     continue;
                 },
-                Some('/') => {
-                    if let Some('*') = self.peek() {
+                Some((byte_idx, '/')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    if let Some((_, '*')) = self.peek() {
                         // ブロックコメントの開始
                         // '*' を消費
                         self.next_char();
     
                         // コメントの終わりを探す
-                        while let Some(ch) = self.next_char() {
+                        while let Some((_, ch)) = self.next_char() {
                             if ch == '*' {
-                                if let Some('/') = self.peek() {
+                                if let Some((_, '/')) = self.peek() {
                                     // '/' を消費してコメントを終える
                                     self.next_char();
 
-                                    // start_byte を char_offsets から取り出す
-                                    let start_byte = if start_char_idx < self.char_offsets.len() {
-                                        self.char_offsets[start_char_idx]
+                                    // end_byte: 次に来る文字のバイト開始位置（peeked の byte idx）か入力終端
+                                    let end_byte = if let Some((b, _)) = self.peeked {
+                                        b
                                     } else {
                                         self.input.len()
                                     };
-
-                                    // end_byte は現在の self.cur のバイトオフセット（self.cur は次に読む文字のインデックス）
-                                    let end_byte = if self.cur < self.char_offsets.len() {
-                                        self.char_offsets[self.cur]
-                                    } else {
-                                        self.input.len()
-                                    };
-
-                                    let length = end_byte.saturating_sub(start_byte);
 
                                     let end_line = self.line;
                                     let end_column = self.column;
 
-                                    // ここで即座に返す
                                     return Some(Token::BlockComment {
                                         start_line,
                                         start_column,
                                         end_line,
                                         end_column,
-                                        offset: start_byte,
-                                        length,
+                                        byte_offset: start_byte_flag.unwrap(),
+                                        byte_length: end_byte,
                                     });
                                 }
                             }
@@ -132,12 +150,16 @@ impl<'a> Lexer<'a> {
                         return None
                     }
                 },
-                Some('#') => {
+                Some((byte_idx, '#')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+
                     // ディレクティブを行末まで読み取る（先頭の空白は start_char_idx でカバーされる）
                     let mut directive_text = String::new();
                     directive_text.push('#');
 
-                    while let Some(ch) = self.next_char() {
+                    while let Some((_, ch)) = self.next_char() {
                         directive_text.push(ch);
                         if ch == '\n' {
                             break;
@@ -148,17 +170,7 @@ impl<'a> Lexer<'a> {
                     let content = directive_text.trim_start_matches('#').trim_start().to_string();
 
                     // バイトオフセットを計算
-                    let start_byte = if start_char_idx < self.char_offsets.len() {
-                        self.char_offsets[start_char_idx]
-                    } else {
-                        self.input.len()
-                    };
-                    let end_byte = if self.cur < self.char_offsets.len() {
-                        self.char_offsets[self.cur]
-                    } else {
-                        self.input.len()
-                    };
-                    let length = end_byte.saturating_sub(start_byte);
+                    let end_char_idx = self.pos_index();
                     let end_line = self.line;
                     let end_column = self.column;
 
@@ -196,8 +208,8 @@ impl<'a> Lexer<'a> {
                             start_column,
                             end_line,
                             end_column,
-                            offset: start_byte,
-                            length,
+                            byte_offset: start_byte_flag.unwrap(),
+                            byte_end_idx: end_char_idx,
                             filename,
                         });
                     }
@@ -215,8 +227,8 @@ impl<'a> Lexer<'a> {
                                 start_column,
                                 end_line,
                                 end_column,
-                                offset: start_byte,
-                                length,
+                                byte_offset: start_byte_flag.unwrap(),
+                                byte_end_idx: end_char_idx,
                                 macro_name,
                                 macro_value,
                             });
@@ -229,8 +241,8 @@ impl<'a> Lexer<'a> {
                         start_column,
                         end_line,
                         end_column,
-                        offset: start_byte,
-                        length,
+                        byte_offset: start_byte_flag.unwrap(),
+                        byte_end_idx: end_char_idx,
                         filename: content,
                     });
                 },
@@ -281,43 +293,41 @@ impl<'a> Parser<'a> {
 
         while let Some(token) = self.lexer.next_token() {
             match token {
-                Token::BlockComment { start_line, start_column, end_line, end_column , offset, length} => {
+                Token::BlockComment { start_line, start_column, end_line, end_column, byte_offset, byte_length: byte_end_idx } => {
                     let span = Span {
                         start_line,
                         start_column,
                         end_line,
                         end_column,
-                        offset,
-                        length,
+                        offset: byte_offset,
+                        length: byte_end_idx.saturating_sub(byte_offset),
                     };
-                    let text = self.lexer.input[offset..offset+length].to_string();
+                    // ここでは byte_offset をバイトオフセット、char_length をバイト長扱いでスライスしている既存のコードに合わせる
+                    let text = self.lexer.input[byte_offset..byte_end_idx].to_string();
                     items.push(Item::BlockComment { span, text });
                 },
-                Token::Include { start_line, start_column, end_line, end_column, offset, length, filename } => {
+                Token::Include { start_line, start_column, end_line, end_column, byte_offset, byte_end_idx, filename } => {
                     let span = Span {
                         start_line,
                         start_column,
                         end_line,
                         end_column,
-                        offset,
-                        length,
+                        offset: byte_offset,
+                        length: byte_end_idx.saturating_sub(byte_offset),
                     };
-                    
-                    let text = self.lexer.input[offset..offset+length].to_string();
-
+                    let text = self.lexer.input[byte_offset..byte_end_idx].to_string();
                     items.push(Item::Include { span, text, filename });
-
                 },
-                Token::Define { start_line, start_column, end_line, end_column, offset, length, macro_name, macro_value } => {
+                Token::Define { start_line, start_column, end_line, end_column, byte_offset, byte_end_idx, macro_name, macro_value } => {
                     let span = Span {
                         start_line,
                         start_column,
                         end_line,
                         end_column,
-                        offset,
-                        length,
+                        offset: byte_offset,
+                        length: byte_end_idx.saturating_sub(byte_offset),
                     };
-                    let text = self.lexer.input[offset..offset+length].to_string();
+                    let text = self.lexer.input[byte_offset..byte_end_idx].to_string();
                     items.push(Item::Define { span, text, macro_name, macro_value });
                 }
             }
@@ -377,7 +387,7 @@ impl Formatter {
                     s.push_str(&text[first_non_ws..]);       
                 },
                 Item::Define { text, ..} => {
-                                        // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
+                    // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
                     let first_non_ws = text
                         .char_indices()
                         .find(|&(_, ch)| !ch.is_whitespace())
@@ -428,14 +438,14 @@ fn lexer_sample() {
 
     while let Some(token) = lx.next_token() {
         match token {
-            Token::BlockComment { start_line, start_column, end_line, end_column , offset, length} => {
-                println!("Block comment from ({}, {}) to ({}, {}): {}", start_line, start_column, end_line, end_column, &contents[offset..offset+length]);
+            Token::BlockComment { start_line, start_column, end_line, end_column , byte_offset, byte_length: byte_end_idx} => {
+                println!("Block comment from ({}, {}) to ({}, {}): {}", start_line, start_column, end_line, end_column, &contents[byte_offset..byte_offset+byte_end_idx]);
             },
-            Token::Include { start_line, start_column, end_line, end_column, offset, length, filename } => {
-                println!("Include from ({}, {}) to ({}, {}): {} (filename: {})", start_line, start_column, end_line, end_column, &contents[offset..offset+length], filename);
+            Token::Include { start_line, start_column, end_line, end_column, byte_offset, byte_end_idx, filename } => {
+                println!("Include from ({}, {}) to ({}, {}): {} (filename: {})", start_line, start_column, end_line, end_column, &contents[byte_offset..byte_offset+byte_end_idx], filename);
             },
-            Token::Define { start_line, start_column, end_line, end_column, offset, length, macro_name, macro_value } => {
-                println!("Define from ({}, {}) to ({}, {}): {} (macro: {}, value: {})", start_line, start_column, end_line, end_column, &contents[offset..offset+length], macro_name, macro_value);
+            Token::Define { start_line, start_column, end_line, end_column, byte_offset, byte_end_idx, macro_name, macro_value } => {
+                println!("Define from ({}, {}) to ({}, {}): {} (macro: {}, value: {})", start_line, start_column, end_line, end_column, &contents[byte_offset..byte_offset+byte_end_idx], macro_name, macro_value);
             }
         }
     }
@@ -472,25 +482,33 @@ mod tests {
         let s = "ab\nc";
         let mut lx = Lexer::new(s);
 
-        assert_eq!(lx.peek(), Some('a'));
+        let (_, ch) = lx.peek().unwrap();
+        assert_eq!(ch, 'a');
+        // assert_eq!(s[byte_idx], 'a');
 
         // read 'a'
-        assert_eq!(lx.next_char(), Some('a'));
+        assert_eq!(lx.next_char(), Some((0, 'a')));
         assert_eq!(lx.pos_index(), 1);
         assert_eq!(lx.line, 0);
         assert_eq!(lx.column, 1);
 
         // read 'b'
-        assert_eq!(lx.next_char(), Some('b'));
+        assert_eq!(lx.next_char(), Some((1, 'b')));
         assert_eq!(lx.pos_index(), 2);
         assert_eq!(lx.line, 0);
         assert_eq!(lx.column, 2);
 
         // read '\n'
-        assert_eq!(lx.next_char(), Some('\n'));
+        assert_eq!(lx.next_char(), Some((2, '\n')));
         assert_eq!(lx.pos_index(), 3);
         assert_eq!(lx.line, 1);
         assert_eq!(lx.column, 0);
+
+        // read 'c'
+        assert_eq!(lx.next_char(), Some((3, 'c')));
+        assert_eq!(lx.pos_index(), 4);
+        assert_eq!(lx.line, 1);
+        assert_eq!(lx.column, 1);
 
     }
 
@@ -501,7 +519,7 @@ mod tests {
         let mut lx = Lexer::new(s);
 
         let mut got = Vec::new();
-        while let Some(ch) = lx.next_char() {
+        while let Some((_, ch)) = lx.next_char() {
             got.push(ch);
         }
         assert_eq!(got, vec!['a', 'é', 'b']);
@@ -517,14 +535,13 @@ mod tests {
         // Skip to the block comment
         while let Some(token) = lx.next_token() {
             match token {
-                Token::BlockComment { start_line, start_column, end_line, end_column , offset, length} => {
+                Token::BlockComment { start_line, start_column, end_line, end_column , byte_offset, byte_length} => {
                     assert_eq!(start_line, 0);
                     assert_eq!(start_column, 0);
                     assert_eq!(end_line, 0);
                     assert_eq!(end_column, 13);
-                    assert_eq!(offset, 0);
-                    assert_eq!(length, 13);
-                    assert_eq!(&s[offset..offset+length], "/* comment */");
+                    assert_eq!(byte_offset, 0);
+                    assert_eq!(&s[byte_offset..byte_offset+byte_length], "/* comment */");
                     return;
                 },
                 _ => {
@@ -543,14 +560,13 @@ mod tests {
         // Skip to the block comment
         while let Some(token) = lx.next_token() {
             match token {
-                Token::BlockComment { start_line, start_column, end_line, end_column , offset, length} => {
+                Token::BlockComment { start_line, start_column, end_line, end_column , byte_offset, byte_length: byte_end_idx} => {
                     assert_eq!(start_line, 0);
                     assert_eq!(start_column, 0);
                     assert_eq!(end_line, 0);
                     assert_eq!(end_column, 10);
-                    assert_eq!(offset, 0);
-                    assert_eq!(length, 18);
-                    assert_eq!(&s[offset..offset+length], "/* コメント */");
+                    assert_eq!(byte_offset, 0);
+                    assert_eq!(&s[byte_offset..byte_offset+byte_end_idx], "/* コメント */");
                     return;
                 }
                 _ => {
@@ -563,20 +579,19 @@ mod tests {
 
     #[test]
     fn test_lexer_block_comment_japanese_with_spaces() {
-        let s = "\t\r\n /* コメント */";
+        let s = "\t\r\n /* コメント*/";
         let mut lx = Lexer::new(s);
 
         // Skip to the block comment
         while let Some(token) = lx.next_token() {
             match token {
-                Token::BlockComment { start_line, start_column, end_line, end_column , offset, length} => {
+                Token::BlockComment { start_line, start_column, end_line, end_column , byte_offset, byte_length: byte_end_idx} => {
                     assert_eq!(start_line, 0);
                     assert_eq!(start_column, 0);
                     assert_eq!(end_line, 1);
-                    assert_eq!(end_column, 11);
-                    assert_eq!(offset, 0);
-                    assert_eq!(length, 22);
-                    assert_eq!(&s[offset..offset+length], "\t\r\n /* コメント */");
+                    assert_eq!(end_column, 10);
+                    assert_eq!(byte_offset, 0);
+                    assert_eq!(&s[byte_offset..byte_offset+byte_end_idx], "\t\r\n /* コメント*/");
                     return;
                 },
                 _ => {
@@ -635,13 +650,15 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Include { start_line, start_column, offset, length, filename , ..} => {
+                Token::Include { start_line, start_column, end_line, end_column, byte_offset, byte_end_idx, filename } => {
                     assert_eq!(start_line, 0);
                     assert_eq!(start_column, 0);
+                    assert_eq!(end_line, 1);
+                    assert_eq!(end_column, 0);
                     assert_eq!(filename, "stdio.h");
-                    assert_eq!(offset, 0);
-                    assert_eq!(length, s.len());
-                    assert_eq!(&s[offset..offset+length], "#include <stdio.h>\n");
+                    assert_eq!(byte_offset, 0);
+                    assert_eq!(byte_end_idx, s.len());
+                    assert_eq!(&s[byte_offset..byte_end_idx], "#include <stdio.h>\n");
                     return;
                 }
                 _ => {}
@@ -657,9 +674,9 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Include { filename, offset, length, .. } => {
+                Token::Include { filename, byte_offset, byte_end_idx, .. } => {
                     assert_eq!(filename, "file.h");
-                    assert_eq!(&s[offset..offset+length], "#include \"file.h\"\n");
+                    assert_eq!(&s[byte_offset..byte_end_idx], "#include \"file.h\"\n");
                     return;
                 }
                 _ => {}
@@ -675,9 +692,9 @@ mod tests {
         let mut lx1 = Lexer::new(s1);
         while let Some(token) = lx1.next_token() {
             match token {
-                Token::Include { filename, offset, length, .. } => {
+                Token::Include { filename, byte_offset, byte_end_idx, .. } => {
                     assert_eq!(filename, "path/to/file");
-                    assert_eq!(&s1[offset..offset+length], "#include <path/to/file\n");
+                    assert_eq!(&s1[byte_offset..byte_offset+byte_end_idx], "#include <path/to/file\n");
                     break;
                 }
                 _ => {}
@@ -688,9 +705,9 @@ mod tests {
         let mut lx2 = Lexer::new(s2);
         while let Some(token) = lx2.next_token() {
             match token {
-                Token::Include { filename, offset, length, .. } => {
+                Token::Include { filename, byte_offset, byte_end_idx, .. } => {
                     assert_eq!(filename, "another/path");
-                    assert_eq!(&s2[offset..offset+length], "#include \"another/path\n");
+                    assert_eq!(&s2[byte_offset..byte_offset+byte_end_idx], "#include \"another/path\n");
                     break;
                 }
                 _ => {}
@@ -731,10 +748,10 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Define { macro_name, macro_value, offset, length, .. } => {
+                Token::Define { macro_name, macro_value, byte_offset, byte_end_idx, .. } => {
                     assert_eq!(macro_name, "MAX");
                     assert_eq!(macro_value, "10");
-                    assert_eq!(&s[offset..offset+length], "#define MAX 10\n");
+                    assert_eq!(&s[byte_offset..byte_offset+byte_end_idx], "#define MAX 10\n");
                     return;
                 }
                 _ => {}
@@ -750,11 +767,10 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Define { macro_name, macro_value, offset, length, .. } => {
-                    // offset should include leading whitespace (lexer records start before skipping)
+                Token::Define { macro_name, macro_value, byte_offset, byte_end_idx, .. } => {
                     assert_eq!(macro_name, "X");
                     assert_eq!(macro_value, "1");
-                    assert_eq!(&s[offset..offset+length], "\t \r #define X 1\n");
+                    assert_eq!(&s[byte_offset..byte_offset+byte_end_idx], "\t \r #define X 1\n");
                     return;
                 }
                 _ => {}
