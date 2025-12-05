@@ -3,3 +3,4 @@
 #include "XXX.h" // XXX.h をインクルード
 #include <YYY.h> /* YYY.h をインクルード */
 /* おわり */
+Typedef int hello;
