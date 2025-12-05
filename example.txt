@@ -1,6 +1,15 @@
-/* はじまり */
-#define A B
-#include "XXX.h" // XXX.h をインクルード
-#include <YYY.h> /* YYY.h をインクルード */
-/* おわり */
-Typedef int hello;
+/* サンプルのソースコード */
+#include <stdio.h> // インクルード文
+
+#define ONE     1  /* 1 */
+#define TWO     2  /* 2 */
+#define THREE   3  /* 3 */
+
+typedef signed int      sint32_t;   /* 型定義 */
+typedef signed short    sint16_t;   /* 型定義 */
+typedef signed char     uint8_t;    /* 型定義 */
+
+sint32_t s32_global_var_sample1;
+sint16_t s32_global_var_sample2 = 3;
+sint8_t s32_global_var_sample3 = 4;
+

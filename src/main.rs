@@ -14,9 +14,6 @@ enum Token<'a> {
         macro_name: String,      // マクロ名 あとで &str にしたほうがメモリ効率がいいんじゃない？
         macro_value: String      // マクロ値 あとで &str にしたほうがメモリ効率がいいんじゃない？
     },
-    Typedef{
-        span: Span,
-    },
     Semicolon{
         span: Span,
     },
@@ -27,6 +24,45 @@ enum Token<'a> {
         span: Span,
         name: &'a str,
     },
+    // 記憶域クラス指定子
+    Auto{               // C 言語ではスタックに保存するという意味の記憶域クラス指定子がある。実際に使われることはないそう。
+        span: Span,
+    },
+    Register{           // C 言語では汎用レジスタに保存するという意味の記憶域クラス指定子がある。コンパイラは無視することがあるそう。
+        span: Span,
+    },
+    Static{
+        span: Span,     // データセグメントに配置。プログラム開始から終了まで存在。
+    },
+    Extern{
+        span: Span,     // 他のファイルに定義されていることを示す。
+    },
+    Typedef{
+        span: Span,
+    },
+    // 型修飾子
+    Const{
+        span: Span,
+    },
+    Volatile{
+        span: Span,
+    },
+    Restrict{           // todo: C99 以降のキーワードであることを警告して使わせないようにする
+        span: Span,
+    },
+    _Atomic{            // todo: C11 以降のキーワードであることを明示する
+        span: Span,
+    },
+    // 型指定子
+    Int { span: Span },
+    Char { span: Span },
+    Float { span: Span },
+    Double { span: Span },
+    Void { span: Span },
+    Long { span: Span },
+    Short { span: Span },
+    Signed { span: Span },
+    Unsigned { span: Span },
 }
 
 #[derive(Debug)]
@@ -60,7 +96,24 @@ impl<'a> Lexer<'a> {
     // 記号ではないキーワードはここで処理する
     fn keyword_to_token(&self, byte_idx_start: usize, byte_idx_end: usize, span: Span) -> Option<Token> {
         match &self.input[byte_idx_start..byte_idx_end] {
+            "auto" => Some(Token::Auto { span }),
+            "register" => Some(Token::Register { span }),
+            "static" => Some(Token::Static { span }),
+            "extern" => Some(Token::Extern { span }),
             "typedef" => Some(Token::Typedef { span }),
+            "const" => Some(Token::Const { span }),
+            "volatile" => Some(Token::Volatile { span }),
+            "restrict" => Some(Token::Restrict { span }),
+            "_Atomic" => Some(Token::_Atomic { span }),
+            "int" => Some(Token::Int { span }),
+            "char" => Some(Token::Char { span }),
+            "float" => Some(Token::Float { span }),
+            "double" => Some(Token::Double { span }),
+            "void" => Some(Token::Void { span }),
+            "long" => Some(Token::Long { span }),
+            "short" => Some(Token::Short { span }),
+            "signed" => Some(Token::Signed { span }),
+            "unsigned" => Some(Token::Unsigned { span }),
             _ => Some(Token::Ident {
                 span,
                 name: &self.input[byte_idx_start..byte_idx_end],
@@ -378,6 +431,12 @@ enum Item {
     Include { span: Span, text: String, filename: String },
     Define { span: Span, text: String, macro_name: String, macro_value: String },
     TypedefDecl { span: Span, text: String },
+    VarDecl { 
+        span: Span, 
+        text: String,
+        var_name: String,
+        has_initializer: bool,
+    },
 }
 
 // ルートとノードを定義。所有する Span を持たせる（ライフタイム回避のため String/span を所有）
@@ -420,11 +479,9 @@ impl<'a> Parser<'a> {
                     items.push(Item::Define { span, text, macro_name, macro_value });
                 },
                 Token::Typedef { span } => {
-                    // typedef 宣言を ; まで読み取る
                     let start_byte = span.byte_start_idx;
                     let mut end_byte = span.byte_end_idx;
                     
-                    // ; が見つかるまでトークンを読み続ける
                     loop {
                         match self.lexer.next_token() {
                             Some(Token::Semicolon { span: semi_span }) => {
@@ -432,11 +489,9 @@ impl<'a> Parser<'a> {
                                 break;
                             },
                             Some(_) => {
-                                // 他のトークンは読み飛ばす（typedef int x; のような構文）
                                 continue;
                             },
                             None => {
-                                // ; が見つからずに終端に達した
                                 break;
                             }
                         }
@@ -453,8 +508,70 @@ impl<'a> Parser<'a> {
                     };
                     items.push(Item::TypedefDecl { span: final_span, text });
                 },
+                // 記憶域クラス指定子、型修飾子、型指定子で始まる変数宣言
+                Token::Auto { span } | Token::Register { span } | Token::Static { span } | 
+                Token::Extern { span } | Token::Const { span } | Token::Volatile { span } | 
+                Token::Restrict { span } | Token::_Atomic { span } |
+                Token::Int { span } | Token::Char { span } | Token::Float { span } | 
+                Token::Double { span } | Token::Void { span } | Token::Long { span } | 
+                Token::Short { span } | Token::Signed { span } | Token::Unsigned { span } => {
+                    let start_byte = span.byte_start_idx;
+                    let mut end_byte = span.byte_end_idx;
+                    let mut var_name = String::new();
+                    let mut has_initializer = false;
+                    
+                    loop {
+                        match self.lexer.next_token() {
+                            Some(Token::Ident { span: id_span, name }) => {
+                                var_name = name.to_string();
+                                end_byte = id_span.byte_end_idx;
+                            },
+                            Some(Token::Equal { span: eq_span }) => {
+                                has_initializer = true;
+                                end_byte = eq_span.byte_end_idx;
+                            },
+                            Some(Token::Semicolon { span: semi_span }) => {
+                                end_byte = semi_span.byte_end_idx;
+                                break;
+                            },
+                            // 記憶域クラス指定子、型修飾子、型指定子は読み飛ばす
+                            Some(Token::Auto { .. }) | Some(Token::Register { .. }) | 
+                            Some(Token::Static { .. }) | Some(Token::Extern { .. }) |
+                            Some(Token::Const { .. }) | Some(Token::Volatile { .. }) | 
+                            Some(Token::Restrict { .. }) | Some(Token::_Atomic { .. }) |
+                            Some(Token::Int { .. }) | Some(Token::Char { .. }) | 
+                            Some(Token::Float { .. }) | Some(Token::Double { .. }) | 
+                            Some(Token::Void { .. }) | Some(Token::Long { .. }) | 
+                            Some(Token::Short { .. }) | Some(Token::Signed { .. }) | 
+                            Some(Token::Unsigned { .. }) => {
+                                continue;
+                            },
+                            Some(_) => {
+                                continue;
+                            },
+                            None => {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    let text = self.lexer.input[start_byte..end_byte].to_string();
+                    let final_span = Span {
+                        start_line: span.start_line,
+                        start_column: span.start_column,
+                        end_line: self.lexer.line,
+                        end_column: self.lexer.column,
+                        byte_start_idx: start_byte,
+                        byte_end_idx: end_byte,
+                    };
+                    items.push(Item::VarDecl { 
+                        span: final_span, 
+                        text,
+                        var_name,
+                        has_initializer,
+                    });
+                },
                 _ => {
-                    // その他のトークンは無視（または警告を出す）
                     continue;
                 }
             }
@@ -543,6 +660,22 @@ impl Formatter {
                     // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
                     s.push_str(&kept_newlines);
                     s.push_str(&text[first_non_ws..]);
+                },
+                Item::VarDecl { text, .. } => {
+                    // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
+                    let first_non_ws = text
+                        .char_indices()
+                        .find(|&(_, ch)| !ch.is_whitespace())
+                        .map(|(i, _)| i)
+                        .unwrap_or(text.len());
+
+                    // 先頭の空白部分から改行だけ取り出して保持する
+                    let leading = &text[..first_non_ws];
+                    let kept_newlines: String = leading.chars().filter(|&c| c == '\n').collect();
+
+                    // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
+                    s.push_str(&kept_newlines);
+                    s.push_str(&text[first_non_ws..]);
                 }
             }
         }
@@ -555,7 +688,7 @@ impl Formatter {
         let mut s = String::new();
         for item in &tu.items {
             match item {
-                Item::BlockComment { text, .. } | Item::Include { text, .. } | Item::Define { text, .. } | Item::TypedefDecl { text, .. } => {
+                Item::BlockComment { text, .. } | Item::Include { text, .. } | Item::Define { text, .. } | Item::TypedefDecl { text, .. } | Item::VarDecl { text, .. } => {
                     s.push_str(text);
                 }
             }
@@ -570,13 +703,12 @@ fn main() {
     parser_sample();
 }
 
+// lexer_sample() 関数を修正
 fn lexer_sample() {
-
-    println!("Lexer Sample:");
+    println!("[Lexer Sample]");
     let contents = fs::read_to_string("example.txt").unwrap();
     let mut lx = Lexer::new(&contents);
     
-
     while let Some(token) = lx.next_token() {
         match token {
             Token::BlockComment { span } => {
@@ -592,20 +724,36 @@ fn lexer_sample() {
                 println!("Typedef from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
             Token::Semicolon { span } => {
-                println!("Semicolon from ({}, {}) to ({}, {}): {}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+                println!("Semicolon from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
             Token::Equal { span } => {
-                println!("Equal from ({}, {}) to ({}, {}): {}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+                println!("Equal from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
             Token::Ident { span, name } => {
-                println!("Ident from ({}, {}) to ({}, {}): {} (name: {})", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx], name);
-            }
+                println!("Ident from ({}, {}) to ({}, {}): {:?} (name: {})", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx], name);
+            },
+            // 記憶域クラス指定子
+            Token::Auto { span } | Token::Register { span } | Token::Static { span } | 
+            Token::Extern { span } => {
+                println!("Storage class from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
+            // 型修飾子
+            Token::Const { span } | Token::Volatile { span } | Token::Restrict { span } | 
+            Token::_Atomic { span } => {
+                println!("Type qualifier from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
+            // 型指定子
+            Token::Int { span } | Token::Char { span } | Token::Float { span } | 
+            Token::Double { span } | Token::Void { span, .. } | Token::Long { span } | 
+            Token::Short { span } | Token::Signed { span } | Token::Unsigned { span } => {
+                println!("Type specifier from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
         }
     }
 }
 
 fn parser_sample() {
-    println!("\nParser Sample:");
+    println!("\n[Parser Sample]");
     let contents = fs::read_to_string("example.txt").unwrap();
     let lx = Lexer::new(&contents);
     let mut parser = Parser::new(lx);
@@ -614,17 +762,20 @@ fn parser_sample() {
     for item in tu.items {
         match item {
             Item::BlockComment { span, text  } => {
-                println!("Block comment from ({}, {}) to ({}, {}): {} ", span.start_line, span.start_column, span.end_line, span.end_column, text);
+                println!("Block comment from ({}, {}) to ({}, {}): {:?} ", span.start_line, span.start_column, span.end_line, span.end_column, text);
             },
             Item::Include { span, text, filename } => {
-                println!("Include from ({}, {}) to ({}, {}): {} (filename: {})", span.start_line, span.start_column, span.end_line, span.end_column, text, filename);
+                println!("Include from ({}, {}) to ({}, {}): {:?} (filename: {})", span.start_line, span.start_column, span.end_line, span.end_column, text, filename);
             },
             Item::Define { span, text, macro_name, macro_value } => {
-                println!("Define from ({}, {}) to ({}, {}): {} (macro: {}, value: {})", span.start_line, span.start_column, span.end_column, span.end_column, text, macro_name, macro_value);
+                println!("Define from ({}, {}) to ({}, {}): {:?} (macro: {}, value: {})", span.start_line, span.start_column, span.end_line, span.end_column, text, macro_name, macro_value);
             },
             Item::TypedefDecl { span, text } => {
-                println!("TypedefDecl from ({}, {}) to ({}, {}): {}", span.start_line, span.start_column, span.end_line, span.end_column, text);
-            }
+                println!("TypedefDecl from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, text);
+            },
+            Item::VarDecl { span, text, var_name, has_initializer } => {
+                println!("VarDecl from ({}, {}) to ({}, {}): {:?} (var_name: {}, has_initializer: {})", span.start_line, span.start_column, span.end_line, span.end_column, text, var_name, has_initializer);
+            },
         }
     }
 }
@@ -1144,5 +1295,154 @@ mod tests {
                 _ => {}
             }
         }
+    }
+
+    #[test]
+    fn test_lexer_int_keyword() {
+        let s = "int x;";
+        let mut lx = Lexer::new(s);
+
+        let token1 = lx.next_token();
+        match token1 {
+            Some(Token::Int { span }) => {
+                assert_eq!(&s[span.byte_start_idx..span.byte_end_idx], "int");
+            }
+            _ => panic!("Expected Int token"),
+        }
+    }
+
+    #[test]
+    fn test_parser_simple_var_decl() {
+        let s = "int x;\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 1);
+
+        match &tu.items[0] {
+            Item::VarDecl { text, var_name, has_initializer, .. } => {
+                assert_eq!(var_name, "x");
+                assert_eq!(*has_initializer, false);
+                assert_eq!(text, "int x;");
+            }
+            _ => panic!("Expected VarDecl item"),
+        }
+    }
+
+    #[test]
+    fn test_parser_var_decl_with_initializer() {
+        let s = "int x = 10;\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 1);
+
+        match &tu.items[0] {
+            Item::VarDecl { text, var_name, has_initializer, .. } => {
+                assert_eq!(var_name, "x");
+                assert_eq!(*has_initializer, true);
+                assert!(text.contains("int x ="));
+            }
+            _ => panic!("Expected VarDecl item"),
+        }
+    }
+
+    #[test]
+    fn test_parser_var_decl_with_storage_class() {
+        let s = "static int counter;\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 1);
+
+        match &tu.items[0] {
+            Item::VarDecl { text, var_name, has_initializer, .. } => {
+                assert_eq!(var_name, "counter");
+                assert_eq!(*has_initializer, false);
+                assert_eq!(text, "static int counter;");
+            }
+            _ => panic!("Expected VarDecl item"),
+        }
+    }
+
+    #[test]
+    fn test_parser_var_decl_with_qualifiers() {
+        let s = "const volatile int value = 42;\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 1);
+
+        match &tu.items[0] {
+            Item::VarDecl { text, var_name, has_initializer, .. } => {
+                assert_eq!(var_name, "value");
+                assert_eq!(*has_initializer, true);
+                assert!(text.contains("const"));
+                assert!(text.contains("volatile"));
+            }
+            _ => panic!("Expected VarDecl item"),
+        }
+    }
+
+    #[test]
+    fn test_parser_multiple_var_decls() {
+        let s = "int a;\nfloat b = 3.14;\nstatic char c;\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 3);
+
+        match &tu.items[0] {
+            Item::VarDecl { var_name, .. } => assert_eq!(var_name, "a"),
+            _ => panic!("Expected VarDecl"),
+        }
+
+        match &tu.items[1] {
+            Item::VarDecl { var_name, has_initializer, .. } => {
+                assert_eq!(var_name, "b");
+                assert_eq!(*has_initializer, true);
+            }
+            _ => panic!("Expected VarDecl"),
+        }
+
+        match &tu.items[2] {
+            Item::VarDecl { var_name, .. } => assert_eq!(var_name, "c"),
+            _ => panic!("Expected VarDecl"),
+        }
+    }
+
+    #[test]
+    fn test_formatter_var_decl() {
+        let span = Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0, byte_start_idx: 0, byte_end_idx: 0 };
+        let item = Item::VarDecl { 
+            span, 
+            text: String::from("  int x;"),
+            var_name: String::from("x"),
+            has_initializer: false,
+        };
+        let tu = TranslationUnit { items: vec![item] };
+        let fmt = Formatter::new();
+        let out = fmt.format_tu(&tu);
+        assert_eq!(out, "int x;");
+    }
+
+    #[test]
+    fn test_parser_mixed_items() {
+        let s = "/* comment */\n#include <stdio.h>\nint x = 5;\ntypedef int myint;\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 4);
+        
+        assert!(matches!(&tu.items[0], Item::BlockComment { .. }));
+        assert!(matches!(&tu.items[1], Item::Include { .. }));
+        assert!(matches!(&tu.items[2], Item::VarDecl { .. }));
+        assert!(matches!(&tu.items[3], Item::TypedefDecl { .. }));
     }
 }
