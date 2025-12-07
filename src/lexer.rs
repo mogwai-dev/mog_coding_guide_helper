@@ -26,7 +26,8 @@ impl<'a> Lexer<'a> {
             now: None,
             peeked: None,
         };
-        lx.next_char(); // 初期化のために一文字進める
+        // peeked に最初の文字を入れる
+        lx.peeked = lx.char_offsets.next();
         lx
     }
 
@@ -89,24 +90,33 @@ impl<'a> Lexer<'a> {
 
     // トークンを一つ読み取る
     pub fn next_token(&mut self) -> Option<Token<'_>> {
+        // 初回呼び出し時に now を初期化
+        if self.now.is_none() && self.peeked.is_some() {
+            self.next_char();
+            // 初回呼び出し時に位置情報をリセット
+            self.line = 0;
+            self.column = 0;
+        }
+        
         let start_line = self.line;
         let start_column = self.column;
         let mut start_byte_flag: Option<usize> = None;
 
         loop {
-            match self.next_char() {
+            match self.now {
                 Some((byte_idx, ' ')) | Some((byte_idx, '\t')) | Some((byte_idx, '\n')) | Some((byte_idx, '\r')) => {
                     // 空白文字はスキップ
                     if start_byte_flag.is_none() {
                         start_byte_flag = Some(byte_idx);
                     }
-
+                    self.next_char();
                     continue;
                 },
                 Some((byte_idx, ';')) => {
                     if start_byte_flag.is_none() {
                         start_byte_flag = Some(byte_idx);
                     }
+                    self.next_char();
 
                     let end_byte = if let Some((b, _)) = self.peeked {
                         b
@@ -132,6 +142,7 @@ impl<'a> Lexer<'a> {
                     if start_byte_flag.is_none() {
                         start_byte_flag = Some(byte_idx);
                     }
+                    self.next_char();
 
                     let end_byte = if let Some((b, _)) = self.peeked {
                         b
@@ -157,6 +168,7 @@ impl<'a> Lexer<'a> {
                     if start_byte_flag.is_none() {
                         start_byte_flag = Some(byte_idx);
                     }
+                    self.next_char();
 
                     let end_byte = if let Some((b, _)) = self.peeked {
                         b
@@ -179,6 +191,7 @@ impl<'a> Lexer<'a> {
                     if start_byte_flag.is_none() {
                         start_byte_flag = Some(byte_idx);
                     }
+                    self.next_char();
 
                     let end_byte = if let Some((b, _)) = self.peeked {
                         b
@@ -201,44 +214,48 @@ impl<'a> Lexer<'a> {
                     if start_byte_flag.is_none() {
                         start_byte_flag = Some(byte_idx);
                     }
-                    if let Some((_, '*')) = self.peek() {
+                    self.next_char();
+                    
+                    if let Some((_, '*')) = self.now {
                         // ブロックコメントの開始
                         // '*' を消費
                         self.next_char();
     
                         // コメントの終わりを探す
-                        while let Some((_, ch)) = self.next_char() {
-                            if ch == '*' {
-                                if let Some((_, '/')) = self.peek() {
-                                    // '/' を消費してコメントを終える
+                        loop {
+                            match self.now {
+                                Some((_, '*')) => {
                                     self.next_char();
+                                    if let Some((byte_idx, '/')) = self.now {
+                                        // '/' を読んだ時点で column は '/' の位置
+                                        // 終端は '/' の次の位置なので + 1
+                                        let end_line = self.line;
+                                        let end_column = self.column + 1;
+                                        
+                                        // '/' の終端バイト位置を計算
+                                        let end_byte = byte_idx + '/'.len_utf8();
+                                        
+                                        // '/' を消費
+                                        self.next_char();
 
-                                    // end_byte: 次に来る文字のバイト開始位置（peeked の byte idx）か入力終端
-                                    let end_byte = if let Some((b, _)) = self.peeked {
-                                        b
-                                    } else {
-                                        self.input.len()
-                                    };
-
-                                    let end_line = self.line;
-                                    let end_column = self.column;
-
-                                    return Some(Token::BlockComment {
-                                        span: Span {
-                                            start_line,
-                                            start_column,
-                                            end_line,
-                                            end_column,
-                                            byte_start_idx: start_byte_flag.unwrap(),
-                                            byte_end_idx: end_byte,
-                                        }
-                                    });
+                                        return Some(Token::BlockComment {
+                                            span: Span {
+                                                start_line,
+                                                start_column,
+                                                end_line,
+                                                end_column,
+                                                byte_start_idx: start_byte_flag.unwrap(),
+                                                byte_end_idx: end_byte,
+                                            }
+                                        });
+                                    }
                                 }
+                                Some(_) => {
+                                    self.next_char();
+                                }
+                                None => return None,
                             }
                         }
-                        
-                        // コメントが閉じられなかった場合は None を返す
-                        return None;
                     } else {
                         // 他のトークン処理へ（ここでは省略）
                         return None
@@ -248,23 +265,30 @@ impl<'a> Lexer<'a> {
                     if start_byte_flag.is_none() {
                         start_byte_flag = Some(byte_idx);
                     }
+                    self.next_char();
 
                     // ディレクティブを行末まで読み取る（先頭の空白は start_char_idx でカバーされる）
                     let mut directive_text = String::new();
                     directive_text.push('#');
 
-                    while let Some((_, ch)) = self.next_char() {
-                        directive_text.push(ch);
-                        if ch == '\n' {
-                            break;
+                    loop {
+                        match self.now {
+                            Some((_, ch)) => {
+                                directive_text.push(ch);
+                                self.next_char();
+                                if ch == '\n' {
+                                    break;
+                                }
+                            }
+                            None => break,
                         }
                     }
 
                     // directive の中身（# を取り除いた後）を解析用に取得（先頭空白は trim_start する）
                     let content = directive_text.trim_start_matches('#').trim_start().to_string();
 
-                    // バイトオフセットを計算：次に来る文字のバイト位置（peeked の byte idx）か入力終端
-                    let end_byte_idx = if let Some((b, _)) = self.peeked {
+                    // バイトオフセットを計算：現在の文字のバイト位置か入力終端
+                    let end_byte_idx = if let Some((b, _)) = self.now {
                         b
                     } else {
                         self.input.len()
@@ -357,19 +381,21 @@ impl<'a> Lexer<'a> {
 
                     // キーワードか識別子の判定
                     if self.is_identifier_start(ch) {
-                        let (actual_byte_idx_start, _) = self.now.unwrap();
+                        let actual_byte_idx_start = byte_idx;
+                        self.next_char();
 
                         // 識別子の終わりまで読み進める
-                        while let Some((_, next_ch)) = self.peek() {
-                            if self.is_identifier_start(next_ch) || next_ch.is_ascii_digit() {
-                                self.next_char();
-                            } else {
-                                break;
+                        loop {
+                            match self.now {
+                                Some((_, next_ch)) if self.is_identifier_start(next_ch) || next_ch.is_ascii_digit() => {
+                                    self.next_char();
+                                }
+                                _ => break,
                             }
                         }
                         
                         // 最後に読んだ文字の次のバイト位置を終端とする
-                        let actual_byte_idx_end = if let Some((b, _)) = self.peeked {
+                        let actual_byte_idx_end = if let Some((b, _)) = self.now {
                             b
                         } else {
                             self.input.len()
@@ -387,6 +413,9 @@ impl<'a> Lexer<'a> {
                         };
                         
                         return self.keyword_to_token(actual_byte_idx_start, actual_byte_idx_end, span);
+                    } else {
+                        // 識別子でない文字は無視して次へ
+                        self.next_char();
                     }
                 }, 
                 None => return None, // 入力の終わり

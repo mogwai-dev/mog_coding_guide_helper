@@ -62,7 +62,7 @@ mod tests {
                     assert_eq!(span.start_line, 0);
                     assert_eq!(span.start_column, 0);
                     assert_eq!(span.end_line, 1);
-                    assert_eq!(span.end_column, 10);
+                    assert_eq!(span.end_column, 11); // '/' の次の位置
                     assert_eq!(span.byte_start_idx, 0);
                     assert_eq!(&s[span.byte_start_idx..span.byte_end_idx], "\t\r\n /* コメント*/");
                     return;

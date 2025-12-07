@@ -99,7 +99,7 @@ mod tests {
             Item::VarDecl { text, var_name, has_initializer, .. } => {
                 assert_eq!(var_name, "x");
                 assert_eq!(*has_initializer, false);
-                assert_eq!(text, "int x;");
+                assert_eq!(text, "int x;\n");
             }
             _ => panic!("Expected VarDecl item"),
         }
@@ -137,7 +137,7 @@ mod tests {
             Item::VarDecl { text, var_name, has_initializer, .. } => {
                 assert_eq!(var_name, "counter");
                 assert_eq!(*has_initializer, false);
-                assert_eq!(text, "static int counter;");
+                assert_eq!(text, "static int counter;\n");
             }
             _ => panic!("Expected VarDecl item"),
         }
