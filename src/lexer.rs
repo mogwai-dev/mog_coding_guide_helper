@@ -1,5 +1,5 @@
 use std::str::CharIndices;
-use crate::token::Token;
+use crate::token::*;
 use crate::span::Span;
 
 #[derive(Debug)]
@@ -34,29 +34,29 @@ impl<'a> Lexer<'a> {
     // 記号ではないキーワードはここで処理する
     fn keyword_to_token(&self, byte_idx_start: usize, byte_idx_end: usize, span: Span) -> Option<Token<'_>> {
         match &self.input[byte_idx_start..byte_idx_end] {
-            "auto" => Some(Token::Auto { span }),
-            "register" => Some(Token::Register { span }),
-            "static" => Some(Token::Static { span }),
-            "extern" => Some(Token::Extern { span }),
-            "typedef" => Some(Token::Typedef { span }),
-            "const" => Some(Token::Const { span }),
-            "volatile" => Some(Token::Volatile { span }),
-            "restrict" => Some(Token::Restrict { span }),
-            "_Atomic" => Some(Token::_Atomic { span }),
-            "int" => Some(Token::Int { span }),
-            "char" => Some(Token::Char { span }),
-            "float" => Some(Token::Float { span }),
-            "double" => Some(Token::Double { span }),
-            "void" => Some(Token::Void { span }),
-            "long" => Some(Token::Long { span }),
-            "short" => Some(Token::Short { span }),
-            "signed" => Some(Token::Signed { span }),
-            "unsigned" => Some(Token::Unsigned { span }),
-            "struct" => Some(Token::Struct { span }),
-            _ => Some(Token::Ident {
+            "auto" => Some(Token::Auto(AutoToken { span })),
+            "register" => Some(Token::Register(RegisterToken { span })),
+            "static" => Some(Token::Static(StaticToken { span })),
+            "extern" => Some(Token::Extern(ExternToken { span })),
+            "typedef" => Some(Token::Typedef(TypedefToken { span })),
+            "const" => Some(Token::Const(ConstToken { span })),
+            "volatile" => Some(Token::Volatile(VolatileToken { span })),
+            "restrict" => Some(Token::Restrict(RestrictToken { span })),
+            "_Atomic" => Some(Token::Atomic(AtomicToken { span })),
+            "int" => Some(Token::Int(IntToken { span })),
+            "char" => Some(Token::Char(CharToken { span })),
+            "float" => Some(Token::Float(FloatToken { span })),
+            "double" => Some(Token::Double(DoubleToken { span })),
+            "void" => Some(Token::Void(VoidToken { span })),
+            "long" => Some(Token::Long(LongToken { span })),
+            "short" => Some(Token::Short(ShortToken { span })),
+            "signed" => Some(Token::Signed(SignedToken { span })),
+            "unsigned" => Some(Token::Unsigned(UnsignedToken { span })),
+            "struct" => Some(Token::Struct(StructToken { span })),
+            _ => Some(Token::Ident(IdentToken {
                 span,
                 name: &self.input[byte_idx_start..byte_idx_end],
-            }),
+            })),
         }
     }
 
@@ -127,7 +127,7 @@ impl<'a> Lexer<'a> {
                     let end_line = self.line;
                     let end_column = self.column;
 
-                    return Some(Token::Semicolon {
+                    return Some(Token::Semicolon(SemicolonToken {
                         span: Span {
                             start_line,
                             start_column,
@@ -136,7 +136,7 @@ impl<'a> Lexer<'a> {
                             byte_start_idx: start_byte_flag.unwrap(),
                             byte_end_idx: end_byte,
                         }
-                    });
+                    }));
                 },
                 Some((byte_idx, '=')) => {
                     if start_byte_flag.is_none() {
@@ -153,7 +153,7 @@ impl<'a> Lexer<'a> {
                     let end_line = self.line;
                     let end_column = self.column;
 
-                    return Some(Token::Equal {
+                    return Some(Token::Equal(EqualToken {
                         span: Span {
                             start_line,
                             start_column,
@@ -162,7 +162,7 @@ impl<'a> Lexer<'a> {
                             byte_start_idx: start_byte_flag.unwrap(),
                             byte_end_idx: end_byte,
                         }
-                    });
+                    }));
                 },
                 Some((byte_idx, '{')) => {
                     if start_byte_flag.is_none() {
@@ -176,7 +176,7 @@ impl<'a> Lexer<'a> {
                         self.input.len()
                     };
 
-                    return Some(Token::LeftBrace {
+                    return Some(Token::LeftBrace(LeftBraceToken {
                         span: Span {
                             start_line,
                             start_column,
@@ -185,7 +185,7 @@ impl<'a> Lexer<'a> {
                             byte_start_idx: start_byte_flag.unwrap(),
                             byte_end_idx: end_byte,
                         }
-                    });
+                    }));
                 },
                 Some((byte_idx, '}')) => {
                     if start_byte_flag.is_none() {
@@ -199,7 +199,7 @@ impl<'a> Lexer<'a> {
                         self.input.len()
                     };
 
-                    return Some(Token::RightBrace {
+                    return Some(Token::RightBrace(RightBraceToken {
                         span: Span {
                             start_line,
                             start_column,
@@ -208,7 +208,7 @@ impl<'a> Lexer<'a> {
                             byte_start_idx: start_byte_flag.unwrap(),
                             byte_end_idx: end_byte,
                         }
-                    });
+                    }));
                 },
                 Some((byte_idx, '/')) => {
                     if start_byte_flag.is_none() {
@@ -238,7 +238,7 @@ impl<'a> Lexer<'a> {
                                         // '/' を消費
                                         self.next_char();
 
-                                        return Some(Token::BlockComment {
+                                        return Some(Token::BlockComment(BlockCommentToken {
                                             span: Span {
                                                 start_line,
                                                 start_column,
@@ -247,7 +247,7 @@ impl<'a> Lexer<'a> {
                                                 byte_start_idx: start_byte_flag.unwrap(),
                                                 byte_end_idx: end_byte,
                                             }
-                                        });
+                                        }));
                                     }
                                 }
                                 Some(_) => {
@@ -325,7 +325,7 @@ impl<'a> Lexer<'a> {
                             filename = rest.to_string();
                         }
 
-                        return Some(Token::Include {
+                        return Some(Token::Include(IncludeToken {
                             span: Span {
                                 start_line,
                                 start_column,
@@ -335,7 +335,7 @@ impl<'a> Lexer<'a> {
                                 byte_end_idx: end_byte_idx,
                             },
                             filename: filename.to_string(),
-                        });
+                        }));
                     }
 
                     // #define の処理：先頭の空白は token の offset/length に含まれる（start_byte がそれを指す）
@@ -346,7 +346,7 @@ impl<'a> Lexer<'a> {
                             let macro_name = name.to_string();
                             let macro_value = value.to_string();
 
-                            return Some(Token::Define {
+                            return Some(Token::Define(DefineToken {
                                 span: Span {
                                     start_line,
                                     start_column,
@@ -357,12 +357,12 @@ impl<'a> Lexer<'a> {
                                 },
                                 macro_name,
                                 macro_value,
-                            });
+                            }));
                         }
                     }
 
                     // それ以外の # 系ディレクティブはとりあえず Include 風に生テキストを残す（既存互換）
-                    return Some(Token::Include {
+                    return Some(Token::Include(IncludeToken {
                         span: Span {
                             start_line,
                             start_column,
@@ -372,7 +372,7 @@ impl<'a> Lexer<'a> {
                             byte_end_idx: end_byte_idx,
                         },
                         filename: content.to_string(),
-                    });
+                    }));
                 },
                 Some((byte_idx, ch)) => {
                     if start_byte_flag.is_none() {

@@ -1,5 +1,6 @@
 use std::fs;
-use coding_guide_helper::{Lexer, Parser, Token, Item};
+use coding_guide_helper::{Lexer, Parser, Item};
+use coding_guide_helper::token::*;
 
 fn main() {
     lexer_sample();
@@ -14,50 +15,50 @@ fn lexer_sample() {
     
     while let Some(token) = lx.next_token() {
         match token {
-            Token::BlockComment { span } => {
+            Token::BlockComment(BlockCommentToken { span }) => {
                 println!("Block comment from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
-            Token::Include { span, filename } => {
+            Token::Include(IncludeToken { span, filename }) => {
                 println!("Include from ({}, {}) to ({}, {}): {:?} (filename: {})", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx], filename);
             },
-            Token::Define { span, macro_name, macro_value } => {
+            Token::Define(DefineToken { span, macro_name, macro_value }) => {
                 println!("Define from ({}, {}) to ({}, {}): {:?} (macro: {}, value: {})", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx], macro_name, macro_value);
             },
-            Token::Typedef { span } => {
+            Token::Typedef(TypedefToken { span }) => {
                 println!("Typedef from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
-            Token::Semicolon { span } => {
+            Token::Semicolon(SemicolonToken { span }) => {
                 println!("Semicolon from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
-            Token::Equal { span } => {
+            Token::Equal(EqualToken { span }) => {
                 println!("Equal from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
-            Token::Ident { span, name } => {
+            Token::Ident(IdentToken { span, name }) => {
                 println!("Ident from ({}, {}) to ({}, {}): {:?} (name: {})", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx], name);
             },
             // 記憶域クラス指定子
-            Token::Auto { span } | Token::Register { span } | Token::Static { span } | 
-            Token::Extern { span } => {
+            Token::Auto(AutoToken { span }) | Token::Register(RegisterToken { span }) | Token::Static(StaticToken { span }) | 
+            Token::Extern(ExternToken { span }) => {
                 println!("Storage class from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
             // 型修飾子
-            Token::Const { span } | Token::Volatile { span } | Token::Restrict { span } | 
-            Token::_Atomic { span } => {
+            Token::Const(ConstToken { span }) | Token::Volatile(VolatileToken { span }) | Token::Restrict(RestrictToken { span }) | 
+            Token::Atomic(AtomicToken { span }) => {
                 println!("Type qualifier from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
             // 型指定子
-            Token::Int { span } | Token::Char { span } | Token::Float { span } | 
-            Token::Double { span } | Token::Void { span, .. } | Token::Long { span } | 
-            Token::Short { span } | Token::Signed { span } | Token::Unsigned { span } => {
+            Token::Int(IntToken { span }) | Token::Char(CharToken { span }) | Token::Float(FloatToken { span }) | 
+            Token::Double(DoubleToken { span }) | Token::Void(VoidToken { span }) | Token::Long(LongToken { span }) | 
+            Token::Short(ShortToken { span }) | Token::Signed(SignedToken { span }) | Token::Unsigned(UnsignedToken { span }) => {
                 println!("Type specifier from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
-            Token::Struct { span } => {
+            Token::Struct(StructToken { span }) => {
                 println!("Struct from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
-            Token::LeftBrace { span } => {
+            Token::LeftBrace(LeftBraceToken { span }) => {
                 println!("LeftBrace from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
-            Token::RightBrace { span } => {
+            Token::RightBrace(RightBraceToken { span }) => {
                 println!("RightBrace from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
         }

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::lexer::Lexer;
-    use crate::token::Token;
+    use crate::token::*;
 
     #[test]
     fn test_lexer_define_simple() {
@@ -10,7 +10,7 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Define { macro_name, macro_value, span } => {
+                Token::Define(DefineToken { macro_name, macro_value, span }) => {
                     assert_eq!(macro_name, "MAX");
                     assert_eq!(macro_value, "10");
                     assert_eq!(&s[span.byte_start_idx..span.byte_end_idx], "#define MAX 10\n");
@@ -29,7 +29,7 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Define { macro_name, macro_value, span } => {
+                Token::Define(DefineToken { macro_name, macro_value, span }) => {
                     assert_eq!(macro_name, "X");
                     assert_eq!(macro_value, "1");
                     assert_eq!(&s[span.byte_start_idx..span.byte_end_idx], "\t \r #define X 1\n");
@@ -48,7 +48,7 @@ mod tests {
 
         let token1 = lx.next_token();
         match token1 {
-            Some(Token::Define { macro_name, macro_value, span }) => {
+            Some(Token::Define(DefineToken { macro_name, macro_value, span })) => {
                 assert_eq!(macro_name, "A");
                 assert_eq!(macro_value, "B");
                 assert_eq!(&s[span.byte_start_idx..span.byte_end_idx], "#define A B\n");
@@ -58,7 +58,7 @@ mod tests {
 
         let token2 = lx.next_token();
         match token2 {
-            Some(Token::Include { filename, span }) => {
+            Some(Token::Include(IncludeToken { filename, span })) => {
                 assert_eq!(filename, "XXX.h");
                 let text = &s[span.byte_start_idx..span.byte_end_idx];
                 assert!(text.starts_with("#include \"XXX.h\""));

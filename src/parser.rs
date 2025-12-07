@@ -1,5 +1,5 @@
 use crate::lexer::Lexer;
-use crate::token::Token;
+use crate::token::*;
 use crate::ast::{TranslationUnit, Item};
 use crate::span::Span;
 
@@ -18,26 +18,26 @@ impl<'a> Parser<'a> {
 
         while let Some(token) = self.lexer.next_token() {
             match token {
-                Token::BlockComment { span } => {
+                Token::BlockComment(BlockCommentToken { span }) => {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
                     items.push(Item::BlockComment { span, text });
                 },
-                Token::Include { span, filename } => {
+                Token::Include(IncludeToken { span, filename }) => {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
                     items.push(Item::Include { span, text, filename });
                 },
-                Token::Define { span, macro_name, macro_value } => {
+                Token::Define(DefineToken { span, macro_name, macro_value }) => {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
                     items.push(Item::Define { span, text, macro_name, macro_value });
                 },
                 // ★ 古い Token::Typedef のケースを削除（534-556行目）
                 // 記憶域クラス指定子、型修飾子、型指定子で始まる変数宣言
-                Token::Auto { span } | Token::Register { span } | Token::Static { span } | 
-                Token::Extern { span } | Token::Const { span } | Token::Volatile { span } | 
-                Token::Restrict { span } | Token::_Atomic { span } |
-                Token::Int { span } | Token::Char { span } | Token::Float { span } | 
-                Token::Double { span } | Token::Void { span } | Token::Long { span } | 
-                Token::Short { span } | Token::Signed { span } | Token::Unsigned { span } => {
+                Token::Auto(AutoToken { span }) | Token::Register(RegisterToken { span }) | Token::Static(StaticToken { span }) | 
+                Token::Extern(ExternToken { span }) | Token::Const(ConstToken { span }) | Token::Volatile(VolatileToken { span }) | 
+                Token::Restrict(RestrictToken { span }) | Token::Atomic(AtomicToken { span }) |
+                Token::Int(IntToken { span }) | Token::Char(CharToken { span }) | Token::Float(FloatToken { span }) | 
+                Token::Double(DoubleToken { span }) | Token::Void(VoidToken { span }) | Token::Long(LongToken { span }) | 
+                Token::Short(ShortToken { span }) | Token::Signed(SignedToken { span }) | Token::Unsigned(UnsignedToken { span }) => {
                     let start_byte = span.byte_start_idx;
                     let mut end_byte = span.byte_end_idx;
                     let mut var_name = String::new();
@@ -45,30 +45,30 @@ impl<'a> Parser<'a> {
                     
                     loop {
                         match self.lexer.next_token() {
-                            Some(Token::Ident { span: id_span, name }) => {
+                            Some(Token::Ident(IdentToken { span: id_span, name })) => {
                                 var_name = name.to_string();
                                 end_byte = id_span.byte_end_idx;
                             },
-                            Some(Token::Equal { span: eq_span }) => {
+                            Some(Token::Equal(EqualToken { span: eq_span })) => {
                                 has_initializer = true;
                                 end_byte = eq_span.byte_end_idx;
                             },
-                            Some(Token::Semicolon { span: semi_span }) => {
+                            Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
                                 end_byte = semi_span.byte_end_idx;
                             //    if brace_depth == 0 {
                                     break;
                             //    }
                             },
                             // 記憶域クラス指定子、型修飾子、型指定子は読み飛ばす
-                            Some(Token::Auto { .. }) | Some(Token::Register { .. }) | 
-                            Some(Token::Static { .. }) | Some(Token::Extern { .. }) |
-                            Some(Token::Const { .. }) | Some(Token::Volatile { .. }) | 
-                            Some(Token::Restrict { .. }) | Some(Token::_Atomic { .. }) |
-                            Some(Token::Int { .. }) | Some(Token::Char { .. }) | 
-                            Some(Token::Float { .. }) | Some(Token::Double { .. }) | 
-                            Some(Token::Void { .. }) | Some(Token::Long { .. }) | 
-                            Some(Token::Short { .. }) | Some(Token::Signed { .. }) | 
-                            Some(Token::Unsigned { .. }) => {
+                            Some(Token::Auto(..)) | Some(Token::Register(..)) | 
+                            Some(Token::Static(..)) | Some(Token::Extern(..)) |
+                            Some(Token::Const(..)) | Some(Token::Volatile(..)) | 
+                            Some(Token::Restrict(..)) | Some(Token::Atomic(..)) |
+                            Some(Token::Int(..)) | Some(Token::Char(..)) | 
+                            Some(Token::Float(..)) | Some(Token::Double(..)) | 
+                            Some(Token::Void(..)) | Some(Token::Long(..)) | 
+                            Some(Token::Short(..)) | Some(Token::Signed(..)) | 
+                            Some(Token::Unsigned(..)) => {
                                 continue;
                             },
                             Some(_) => {
@@ -96,7 +96,7 @@ impl<'a> Parser<'a> {
                         has_initializer,
                     });
                 },
-                Token::Struct { span } => {
+                Token::Struct(StructToken { span }) => {
                     // struct 宣言または構造体変数宣言
                     
                     let start_byte = span.byte_start_idx;
@@ -108,26 +108,26 @@ impl<'a> Parser<'a> {
                     
                     loop {
                         match self.lexer.next_token() {
-                            Some(Token::Ident { name, .. }) => {
+                            Some(Token::Ident(IdentToken { name, .. })) => {
                                 // 構造体名（または変数名）
                                 if struct_name.is_none() && !found_brace {
                                     struct_name = Some(name.to_string());
                                 }
                             },
-                            Some(Token::LeftBrace { .. }) => {
+                            Some(Token::LeftBrace(..)) => {
                                 brace_depth += 1;
                                 found_brace = true;
                             },
-                            Some(Token::RightBrace { .. }) => {
+                            Some(Token::RightBrace(..)) => {
                                 brace_depth -= 1;
                             },
-                            Some(Token::Semicolon { span: semi_span }) => {
+                            Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
                                 end_byte = semi_span.byte_end_idx;
                                 if brace_depth == 0 {
                                     break;
                                 }
                             },
-                            Some(Token::Struct { .. }) => {
+                            Some(Token::Struct(..)) => {
                                 // 内部のstructキーワードはスキップ
                                 continue;
                             },
@@ -156,13 +156,13 @@ impl<'a> Parser<'a> {
                         has_typedef,
                     });
                 },
-                Token::Typedef { span } => {
+                Token::Typedef(TypedefToken { span }) => {
                     let start_byte = span.byte_start_idx;
                     let mut end_byte = span.byte_end_idx;
                     
                     // 次のトークンが struct かチェック
                     match self.lexer.next_token() {
-                        Some(Token::Struct { .. }) => {
+                        Some(Token::Struct(..)) => {
                             // typedef struct の処理
                             let mut struct_name: Option<String> = None;
                             let mut brace_depth = 0;
@@ -170,19 +170,19 @@ impl<'a> Parser<'a> {
                             
                             loop {
                                 match self.lexer.next_token() {
-                                    Some(Token::Ident { name, .. }) => {
+                                    Some(Token::Ident(IdentToken { name, .. })) => {
                                         if struct_name.is_none() && !found_brace {
                                             struct_name = Some(name.to_string());
                                         }
                                     },
-                                    Some(Token::LeftBrace { .. }) => {
+                                    Some(Token::LeftBrace(..)) => {
                                         brace_depth += 1;
                                         found_brace = true;
                                     },
-                                    Some(Token::RightBrace { .. }) => {
+                                    Some(Token::RightBrace(..)) => {
                                         brace_depth -= 1;
                                     },
-                                    Some(Token::Semicolon { span: semi_span }) => {
+                                    Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
                                         end_byte = semi_span.byte_end_idx;
                                         if brace_depth == 0 {
                                             break;
@@ -217,7 +217,7 @@ impl<'a> Parser<'a> {
                             // 通常の typedef（既存の処理）
                             loop {
                                 match self.lexer.next_token() {
-                                    Some(Token::Semicolon { span: semi_span }) => {
+                                    Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
                                         end_byte = semi_span.byte_end_idx;
                                         break;
                                     },

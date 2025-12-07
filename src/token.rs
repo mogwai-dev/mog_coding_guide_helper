@@ -1,70 +1,174 @@
 use crate::span::Span;
 
+// 各トークン種類の構造体
+#[derive(Debug, Clone)]
+pub struct BlockCommentToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct IncludeToken {
+    pub span: Span,
+    pub filename: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DefineToken {
+    pub span: Span,
+    pub macro_name: String,
+    pub macro_value: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SemicolonToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct EqualToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct IdentToken<'a> {
+    pub span: Span,
+    pub name: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct AutoToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct RegisterToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct StaticToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExternToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct TypedefToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct VolatileToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct RestrictToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct AtomicToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct IntToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct CharToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct FloatToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct DoubleToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct VoidToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct LongToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ShortToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct SignedToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct UnsignedToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct LeftBraceToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct RightBraceToken {
+    pub span: Span,
+}
+
+// トークンの enum
 #[derive(Debug)]
 pub enum Token<'a> {
-    BlockComment{
-        span: Span,
-    },
-    Include{
-        span: Span,
-        filename: String,        // ファイル名 あとで &str にしたほうがメモリ効率がいいんじゃない？
-    },
-    Define{
-        span: Span,
-        macro_name: String,      // マクロ名 あとで &str にしたほうがメモリ効率がいいんじゃない？
-        macro_value: String      // マクロ値 あとで &str にしたほうがメモリ効率がいいんじゃない？
-    },
-    Semicolon{
-        span: Span,
-    },
-    Equal{
-        span: Span,
-    },
-    Ident{
-        span: Span,
-        name: &'a str,
-    },
-    // 記憶域クラス指定子
-    Auto{               // C 言語ではスタックに保存するという意味の記憶域クラス指定子がある。実際に使われることはないそう。
-        span: Span,
-    },
-    Register{           // C 言語では汎用レジスタに保存するという意味の記憶域クラス指定子がある。コンパイラは無視することがあるそう。
-        span: Span,
-    },
-    Static{
-        span: Span,     // データセグメントに配置。プログラム開始から終了まで存在。
-    },
-    Extern{
-        span: Span,     // 他のファイルに定義されていることを示す。
-    },
-    Typedef{
-        span: Span,
-    },
-    // 型修飾子
-    Const{
-        span: Span,
-    },
-    Volatile{
-        span: Span,
-    },
-    Restrict{           // todo: C99 以降のキーワードであることを警告して使わせないようにする
-        span: Span,
-    },
-    _Atomic{            // todo: C11 以降のキーワードであることを明示する
-        span: Span,
-    },
-    // 型指定子
-    Int { span: Span },
-    Char { span: Span },
-    Float { span: Span },
-    Double { span: Span },
-    Void { span: Span },
-    Long { span: Span },
-    Short { span: Span },
-    Signed { span: Span },
-    Unsigned { span: Span },
-    // 構造体関連
-    Struct { span: Span },
-    LeftBrace { span: Span },    // {
-    RightBrace { span: Span },   // }
+    BlockComment(BlockCommentToken),
+    Include(IncludeToken),
+    Define(DefineToken),
+    Semicolon(SemicolonToken),
+    Equal(EqualToken),
+    Ident(IdentToken<'a>),
+    Auto(AutoToken),
+    Register(RegisterToken),
+    Static(StaticToken),
+    Extern(ExternToken),
+    Typedef(TypedefToken),
+    Const(ConstToken),
+    Volatile(VolatileToken),
+    Restrict(RestrictToken),
+    Atomic(AtomicToken),
+    Int(IntToken),
+    Char(CharToken),
+    Float(FloatToken),
+    Double(DoubleToken),
+    Void(VoidToken),
+    Long(LongToken),
+    Short(ShortToken),
+    Signed(SignedToken),
+    Unsigned(UnsignedToken),
+    Struct(StructToken),
+    LeftBrace(LeftBraceToken),
+    RightBrace(RightBraceToken),
 }
+

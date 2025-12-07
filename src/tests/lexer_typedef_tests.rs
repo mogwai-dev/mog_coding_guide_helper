@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::lexer::Lexer;
-    use crate::token::Token;
+    use crate::token::*;
 
     #[test]
     fn test_lexer_typedef_simple() {
@@ -10,7 +10,7 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Typedef { span } => {
+                Token::Typedef(TypedefToken { span }) => {
                     assert_eq!(&s[span.byte_start_idx..span.byte_end_idx], "typedef");
                     return;
                 }
@@ -27,7 +27,7 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Typedef { span } => {
+                Token::Typedef(TypedefToken { span }) => {
                     assert_eq!(&s[span.byte_start_idx..span.byte_end_idx], "   typedef");
                     return;
                 }
@@ -44,7 +44,7 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Typedef { span } => {
+                Token::Typedef(TypedefToken { span }) => {
                     assert_eq!(&s[span.byte_start_idx..span.byte_end_idx], "typedef");
                     return;
                 }
@@ -63,7 +63,7 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Typedef { .. } => {
+                Token::Typedef(TypedefToken { .. }) => {
                     typedef_count += 1;
                 }
                 _ => {}

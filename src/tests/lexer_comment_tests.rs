@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::lexer::Lexer;
-    use crate::token::Token;
+    use crate::token::*;
 
     #[test]
     fn test_lexer_block_comment() {
@@ -10,7 +10,7 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::BlockComment { span } => {
+                Token::BlockComment(BlockCommentToken { span }) => {
                     assert_eq!(span.start_line, 0);
                     assert_eq!(span.start_column, 0);
                     assert_eq!(span.end_line, 0);
@@ -34,7 +34,7 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::BlockComment { span } => {
+                Token::BlockComment(BlockCommentToken { span }) => {
                     assert_eq!(span.start_line, 0);
                     assert_eq!(span.start_column, 0);
                     assert_eq!(span.end_line, 0);
@@ -58,7 +58,7 @@ mod tests {
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::BlockComment { span } => {
+                Token::BlockComment(BlockCommentToken { span }) => {
                     assert_eq!(span.start_line, 0);
                     assert_eq!(span.start_column, 0);
                     assert_eq!(span.end_line, 1);

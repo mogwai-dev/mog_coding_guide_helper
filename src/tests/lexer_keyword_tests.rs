@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::lexer::Lexer;
-    use crate::token::Token;
+    use crate::token::*;
 
     #[test]
     fn test_lexer_int_keyword() {
@@ -11,7 +11,7 @@ mod tests {
         let mut found_int = false;
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Int { .. } => {
+                Token::Int(IntToken { .. }) => {
                     found_int = true;
                 }
                 _ => {}
@@ -29,7 +29,7 @@ mod tests {
         let mut found_struct = false;
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Struct { .. } => {
+                Token::Struct(StructToken { .. }) => {
                     found_struct = true;
                 }
                 _ => {}
@@ -56,10 +56,10 @@ int main() { return 0; }
 
         while let Some(token) = lx.next_token() {
             match token {
-                Token::Include { .. } => include_count += 1,
-                Token::Define { .. } => define_count += 1,
-                Token::Typedef { .. } => typedef_count += 1,
-                Token::Int { .. } => int_count += 1,
+                Token::Include(IncludeToken { .. }) => include_count += 1,
+                Token::Define(DefineToken { .. }) => define_count += 1,
+                Token::Typedef(TypedefToken { .. }) => typedef_count += 1,
+                Token::Int(IntToken { .. }) => int_count += 1,
                 _ => {}
             }
         }
