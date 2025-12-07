@@ -13,3 +13,7 @@ sint32_t s32_global_var_sample1;
 sint16_t s32_global_var_sample2 = 3;
 sint8_t s32_global_var_sample3 = 4;
 
+struct {
+    int a;
+    inb b;
+} sample;

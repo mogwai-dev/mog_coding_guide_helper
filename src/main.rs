@@ -63,6 +63,10 @@ enum Token<'a> {
     Short { span: Span },
     Signed { span: Span },
     Unsigned { span: Span },
+    // 構造体関連
+    Struct { span: Span },
+    LeftBrace { span: Span },    // {
+    RightBrace { span: Span },   // }
 }
 
 #[derive(Debug)]
@@ -114,6 +118,7 @@ impl<'a> Lexer<'a> {
             "short" => Some(Token::Short { span }),
             "signed" => Some(Token::Signed { span }),
             "unsigned" => Some(Token::Unsigned { span }),
+            "struct" => Some(Token::Struct { span }),
             _ => Some(Token::Ident {
                 span,
                 name: &self.input[byte_idx_start..byte_idx_end],
@@ -151,8 +156,6 @@ impl<'a> Lexer<'a> {
 
     // トークンを一つ読み取る
     fn next_token(&mut self) -> Option<Token> {
-
-        // 現在の文字インデックス（次に読む文字のインデックス）を開始位置として記録
         let start_line = self.line;
         let start_column = self.column;
         let mut start_byte_flag: Option<usize> = None;
@@ -212,6 +215,50 @@ impl<'a> Lexer<'a> {
                             start_column,
                             end_line,
                             end_column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    });
+                },
+                Some((byte_idx, '{')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+
+                    return Some(Token::LeftBrace {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    });
+                },
+                Some((byte_idx, '}')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+
+                    return Some(Token::RightBrace {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
                             byte_start_idx: start_byte_flag.unwrap(),
                             byte_end_idx: end_byte,
                         }
@@ -437,6 +484,12 @@ enum Item {
         var_name: String,
         has_initializer: bool,
     },
+    StructDecl {
+        span: Span,
+        text: String,
+        struct_name: Option<String>,  // 無名構造体の場合は None
+        has_typedef: bool,            // typedef struct の場合 true
+    },
 }
 
 // ルートとノードを定義。所有する Span を持たせる（ライフタイム回避のため String/span を所有）
@@ -478,36 +531,7 @@ impl<'a> Parser<'a> {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
                     items.push(Item::Define { span, text, macro_name, macro_value });
                 },
-                Token::Typedef { span } => {
-                    let start_byte = span.byte_start_idx;
-                    let mut end_byte = span.byte_end_idx;
-                    
-                    loop {
-                        match self.lexer.next_token() {
-                            Some(Token::Semicolon { span: semi_span }) => {
-                                end_byte = semi_span.byte_end_idx;
-                                break;
-                            },
-                            Some(_) => {
-                                continue;
-                            },
-                            None => {
-                                break;
-                            }
-                        }
-                    }
-                    
-                    let text = self.lexer.input[start_byte..end_byte].to_string();
-                    let final_span = Span {
-                        start_line: span.start_line,
-                        start_column: span.start_column,
-                        end_line: self.lexer.line,
-                        end_column: self.lexer.column,
-                        byte_start_idx: start_byte,
-                        byte_end_idx: end_byte,
-                    };
-                    items.push(Item::TypedefDecl { span: final_span, text });
-                },
+                // ★ 古い Token::Typedef のケースを削除（534-556行目）
                 // 記憶域クラス指定子、型修飾子、型指定子で始まる変数宣言
                 Token::Auto { span } | Token::Register { span } | Token::Static { span } | 
                 Token::Extern { span } | Token::Const { span } | Token::Volatile { span } | 
@@ -532,7 +556,9 @@ impl<'a> Parser<'a> {
                             },
                             Some(Token::Semicolon { span: semi_span }) => {
                                 end_byte = semi_span.byte_end_idx;
-                                break;
+                            //    if brace_depth == 0 {
+                                    break;
+                            //    }
                             },
                             // 記憶域クラス指定子、型修飾子、型指定子は読み飛ばす
                             Some(Token::Auto { .. }) | Some(Token::Register { .. }) | 
@@ -570,6 +596,149 @@ impl<'a> Parser<'a> {
                         var_name,
                         has_initializer,
                     });
+                },
+                Token::Struct { span } => {
+                    // struct 宣言または構造体変数宣言
+                    
+                    let start_byte = span.byte_start_idx;
+                    let mut end_byte = span.byte_end_idx;
+                    let mut struct_name: Option<String> = None;
+                    let mut has_typedef = false;
+                    let mut found_brace = false;
+                    let mut brace_depth = 0;
+                    
+                    loop {
+                        match self.lexer.next_token() {
+                            Some(Token::Ident { name, .. }) => {
+                                // 構造体名（または変数名）
+                                if struct_name.is_none() && !found_brace {
+                                    struct_name = Some(name.to_string());
+                                }
+                            },
+                            Some(Token::LeftBrace { .. }) => {
+                                brace_depth += 1;
+                                found_brace = true;
+                            },
+                            Some(Token::RightBrace { .. }) => {
+                                brace_depth -= 1;
+                            },
+                            Some(Token::Semicolon { span: semi_span }) => {
+                                end_byte = semi_span.byte_end_idx;
+                                if brace_depth == 0 {
+                                    break;
+                                }
+                            },
+                            Some(Token::Struct { .. }) => {
+                                // 内部のstructキーワードはスキップ
+                                continue;
+                            },
+                            Some(_) => {
+                                continue;
+                            },
+                            None => {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    let text = self.lexer.input[start_byte..end_byte].to_string();
+                    let final_span = Span {
+                        start_line: span.start_line,
+                        start_column: span.start_column,
+                        end_line: self.lexer.line,
+                        end_column: self.lexer.column,
+                        byte_start_idx: start_byte,
+                        byte_end_idx: end_byte,
+                    };
+                    items.push(Item::StructDecl { 
+                        span: final_span, 
+                        text,
+                        struct_name,
+                        has_typedef,
+                    });
+                },
+                Token::Typedef { span } => {
+                    let start_byte = span.byte_start_idx;
+                    let mut end_byte = span.byte_end_idx;
+                    
+                    // 次のトークンが struct かチェック
+                    match self.lexer.next_token() {
+                        Some(Token::Struct { .. }) => {
+                            // typedef struct の処理
+                            let mut struct_name: Option<String> = None;
+                            let mut brace_depth = 0;
+                            let mut found_brace = false;
+                            
+                            loop {
+                                match self.lexer.next_token() {
+                                    Some(Token::Ident { name, .. }) => {
+                                        if struct_name.is_none() && !found_brace {
+                                            struct_name = Some(name.to_string());
+                                        }
+                                    },
+                                    Some(Token::LeftBrace { .. }) => {
+                                        brace_depth += 1;
+                                        found_brace = true;
+                                    },
+                                    Some(Token::RightBrace { .. }) => {
+                                        brace_depth -= 1;
+                                    },
+                                    Some(Token::Semicolon { span: semi_span }) => {
+                                        end_byte = semi_span.byte_end_idx;
+                                        if brace_depth == 0 {
+                                            break;
+                                    }
+                                    },
+                                    Some(_) => {
+                                        continue;
+                                    },
+                                    None => {
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            let text = self.lexer.input[start_byte..end_byte].to_string();
+                            let final_span = Span {
+                                start_line: span.start_line,
+                                start_column: span.start_column,
+                                end_line: self.lexer.line,
+                                end_column: self.lexer.column,
+                                byte_start_idx: start_byte,
+                                byte_end_idx: end_byte,
+                            };
+                            items.push(Item::StructDecl { 
+                                span: final_span, 
+                                text,
+                                struct_name,
+                                has_typedef: true,
+                            });
+                        },
+                        _ => {
+                            // 通常の typedef（既存の処理）
+                            loop {
+                                match self.lexer.next_token() {
+                                    Some(Token::Semicolon { span: semi_span }) => {
+                                        end_byte = semi_span.byte_end_idx;
+                                        break;
+                                    },
+                                    Some(_) => continue,
+                                    None => break,
+                                }
+                            }
+                
+                            let text = self.lexer.input[start_byte..end_byte].to_string();
+                            let final_span = Span {
+                                start_line: span.start_line,
+                                start_column: span.start_column,
+                                end_line: self.lexer.line,
+                                end_column: self.lexer.column,
+                                byte_start_idx: start_byte,
+                                byte_end_idx: end_byte,
+                            };
+                            items.push(Item::TypedefDecl { span: final_span, text });
+                        }
+                    }
                 },
                 _ => {
                     continue;
@@ -676,6 +845,22 @@ impl Formatter {
                     // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
                     s.push_str(&kept_newlines);
                     s.push_str(&text[first_non_ws..]);
+                },
+                Item::StructDecl { text, .. } => {
+                    // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
+                    let first_non_ws = text
+                        .char_indices()
+                        .find(|&(_, ch)| !ch.is_whitespace())
+                        .map(|(i, _)| i)
+                        .unwrap_or(text.len());
+
+                    // 先頭の空白部分から改行だけ取り出して保持する
+                    let leading = &text[..first_non_ws];
+                    let kept_newlines: String = leading.chars().filter(|&c| c == '\n').collect();
+
+                    // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
+                    s.push_str(&kept_newlines);
+                    s.push_str(&text[first_non_ws..]);
                 }
             }
         }
@@ -688,7 +873,9 @@ impl Formatter {
         let mut s = String::new();
         for item in &tu.items {
             match item {
-                Item::BlockComment { text, .. } | Item::Include { text, .. } | Item::Define { text, .. } | Item::TypedefDecl { text, .. } | Item::VarDecl { text, .. } => {
+                Item::BlockComment { text, .. } | Item::Include { text, .. } | 
+                Item::Define { text, .. } | Item::TypedefDecl { text, .. } |
+                Item::VarDecl { text, .. } | Item::StructDecl { text, .. } => {
                     s.push_str(text);
                 }
             }
@@ -748,6 +935,15 @@ fn lexer_sample() {
             Token::Short { span } | Token::Signed { span } | Token::Unsigned { span } => {
                 println!("Type specifier from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
+            Token::Struct { span } => {
+                println!("Struct from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
+            Token::LeftBrace { span } => {
+                println!("LeftBrace from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
+            Token::RightBrace { span } => {
+                println!("RightBrace from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
         }
     }
 }
@@ -775,6 +971,10 @@ fn parser_sample() {
             },
             Item::VarDecl { span, text, var_name, has_initializer } => {
                 println!("VarDecl from ({}, {}) to ({}, {}): {:?} (var_name: {}, has_initializer: {})", span.start_line, span.start_column, span.end_line, span.end_column, text, var_name, has_initializer);
+            },
+            Item::StructDecl { span, text, struct_name, has_typedef } => {
+                println!("StructDecl from ({}, {}) to ({}, {}): {:?} (struct_name: {:?}, has_typedef: {})", 
+                    span.start_line, span.start_column, span.end_line, span.end_column, text, struct_name, has_typedef);
             },
         }
     }
@@ -1444,5 +1644,145 @@ mod tests {
         assert!(matches!(&tu.items[1], Item::Include { .. }));
         assert!(matches!(&tu.items[2], Item::VarDecl { .. }));
         assert!(matches!(&tu.items[3], Item::TypedefDecl { .. }));
+    }
+
+    #[test]
+    fn test_lexer_struct_keyword() {
+        let s = "struct Point { int x; int y; };";
+        let mut lx = Lexer::new(s);
+
+        let token1 = lx.next_token();
+        match token1 {
+            Some(Token::Struct { span }) => {
+                assert_eq!(&s[span.byte_start_idx..span.byte_end_idx], "struct");
+            }
+            _ => panic!("Expected Struct token"),
+        }
+    }
+
+    #[test]
+    fn test_parser_simple_struct_decl() {
+        let s = "struct Point { int x; int y; };\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 1);
+
+        match &tu.items[0] {
+            Item::StructDecl { text, struct_name, has_typedef, .. } => {
+                assert_eq!(struct_name.as_ref().unwrap(), "Point");
+                assert_eq!(*has_typedef, false);
+                assert!(text.contains("struct Point"));
+            }
+            _ => panic!("Expected StructDecl item"),
+        }
+    }
+
+    #[test]
+    fn test_parser_anonymous_struct() {
+        let s = "struct { int x; int y; } point;\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 1);
+
+        match &tu.items[0] {
+            Item::StructDecl { struct_name, .. } => {
+                // 無名構造体は point が変数名なので struct_name は None か point
+                assert!(struct_name.is_none() || struct_name.as_ref().unwrap() == "point");
+            }
+            _ => panic!("Expected StructDecl item"),
+        }
+    }
+
+    #[test]
+    fn test_parser_typedef_struct() {
+        let s = "typedef struct { int x; int y; } Point;\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 1);
+
+        match &tu.items[0] {
+            Item::StructDecl { text, has_typedef, .. } => {
+                assert_eq!(*has_typedef, true);
+                assert!(text.contains("typedef struct"));
+            }
+            _ => panic!("Expected StructDecl item"),
+        }
+    }
+
+    #[test]
+    fn test_parser_typedef_struct_with_name() {
+        let s = "typedef struct Point { int x; int y; } Point;\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 1);
+
+        match &tu.items[0] {
+            Item::StructDecl { text, struct_name, has_typedef, .. } => {
+                assert_eq!(struct_name.as_ref().unwrap(), "Point");
+                assert_eq!(*has_typedef, true);
+                assert!(text.contains("typedef struct Point"));
+            }
+            _ => panic!("Expected StructDecl item"),
+        }
+    }
+
+    #[test]
+    fn test_parser_struct_variable_decl() {
+        let s = "struct Point p;\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 1);
+
+        match &tu.items[0] {
+            Item::StructDecl { text, struct_name, .. } => {
+                assert_eq!(struct_name.as_ref().unwrap(), "Point");
+                assert!(text.contains("struct Point p"));
+            }
+            _ => panic!("Expected StructDecl item"),
+        }
+    }
+
+    #[test]
+    fn test_parser_nested_struct() {
+        let s = "struct Outer { struct Inner { int val; } inner; int x; };\n";
+        let lx = Lexer::new(s);
+        let mut parser = Parser::new(lx);
+        let tu = parser.parse();
+
+        assert_eq!(tu.items.len(), 1);
+
+        match &tu.items[0] {
+            Item::StructDecl { text, struct_name, .. } => {
+                assert_eq!(struct_name.as_ref().unwrap(), "Outer");
+                assert!(text.contains("struct Outer"));
+                assert!(text.contains("struct Inner"));
+            }
+            _ => panic!("Expected StructDecl item"),
+        }
+    }
+
+    #[test]
+    fn test_formatter_struct_decl() {
+        let span = Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0, byte_start_idx: 0, byte_end_idx: 0 };
+        let item = Item::StructDecl {
+            span,
+            text: String::from("  struct Point { int x; };"),
+            struct_name: Some(String::from("Point")),
+            has_typedef: false,
+        };
+        let tu = TranslationUnit { items: vec![item] };
+        let fmt = Formatter::new();
+        let out = fmt.format_tu(&tu);
+        assert_eq!(out, "struct Point { int x; };");
     }
 }
