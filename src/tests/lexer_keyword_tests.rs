@@ -1,10 +1,8 @@
-#[cfg(test)]
-mod tests {
-    use crate::lexer::Lexer;
-    use crate::token::*;
+use crate::lexer::Lexer;
+use crate::token::*;
 
-    #[test]
-    fn test_lexer_int_keyword() {
+#[test]
+fn test_lexer_int_keyword() {
         let s = "int x;\n";
         let mut lx = Lexer::new(s);
 
@@ -69,4 +67,3 @@ int main() { return 0; }
         assert_eq!(typedef_count, 1);
         assert!(int_count >= 1); // at least one "int"
     }
-}

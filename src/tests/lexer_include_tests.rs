@@ -1,10 +1,8 @@
-#[cfg(test)]
-mod tests {
-    use crate::lexer::Lexer;
-    use crate::token::*;
+use crate::lexer::Lexer;
+use crate::token::*;
 
-    #[test]
-    fn test_lexer_include_angle() {
+#[test]
+fn test_lexer_include_angle() {
         let s = "#include <stdio.h>\n";
         let mut lx = Lexer::new(s);
 
@@ -73,4 +71,3 @@ mod tests {
             }
         }
     }
-}

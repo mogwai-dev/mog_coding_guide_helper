@@ -1,11 +1,9 @@
-#[cfg(test)]
-mod tests {
-    use crate::lexer::Lexer;
-    use crate::parser::Parser;
-    use crate::ast::Item;
+use crate::lexer::Lexer;
+use crate::parser::Parser;
+use crate::ast::Item;
 
-    #[test]
-    fn test_parser_includes_produced_items() {
+#[test]
+fn test_parser_includes_produced_items() {
         let s = "#include \"a.h\"\n#include <b.h>\n";
         let lx = Lexer::new(s);
         let mut parser = Parser::new(lx);
@@ -315,4 +313,3 @@ mod tests {
             _ => panic!("Expected StructDecl item"),
         }
     }
-}

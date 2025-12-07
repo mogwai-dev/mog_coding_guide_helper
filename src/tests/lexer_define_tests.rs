@@ -1,10 +1,8 @@
-#[cfg(test)]
-mod tests {
-    use crate::lexer::Lexer;
-    use crate::token::*;
+use crate::lexer::Lexer;
+use crate::token::*;
 
-    #[test]
-    fn test_lexer_define_simple() {
+#[test]
+fn test_lexer_define_simple() {
         let s = "#define MAX 10\n";
         let mut lx = Lexer::new(s);
 
@@ -66,4 +64,3 @@ mod tests {
             _ => panic!("Expected Include token"),
         }
     }
-}

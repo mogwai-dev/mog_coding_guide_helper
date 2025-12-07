@@ -1,10 +1,8 @@
-#[cfg(test)]
-mod tests {
-    use crate::lexer::Lexer;
-    use crate::token::*;
+use crate::lexer::Lexer;
+use crate::token::*;
 
-    #[test]
-    fn test_lexer_block_comment() {
+#[test]
+fn test_lexer_block_comment() {
         let s = "/* comment */";
         let mut lx = Lexer::new(s);
 
@@ -74,4 +72,3 @@ mod tests {
         }
         panic!("Block comment token not found");
     }
-}

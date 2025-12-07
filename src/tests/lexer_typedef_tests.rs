@@ -1,10 +1,8 @@
-#[cfg(test)]
-mod tests {
-    use crate::lexer::Lexer;
-    use crate::token::*;
+use crate::lexer::Lexer;
+use crate::token::*;
 
-    #[test]
-    fn test_lexer_typedef_simple() {
+#[test]
+fn test_lexer_typedef_simple() {
         let s = "typedef int MyInt;\n";
         let mut lx = Lexer::new(s);
 
@@ -72,4 +70,3 @@ mod tests {
 
         assert_eq!(typedef_count, 2);
     }
-}

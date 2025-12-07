@@ -1,11 +1,9 @@
-#[cfg(test)]
-mod tests {
-    use crate::formatter::Formatter;
-    use crate::ast::{TranslationUnit, Item};
-    use crate::span::Span;
+use crate::formatter::Formatter;
+use crate::ast::{TranslationUnit, Item};
+use crate::span::Span;
 
-    #[test]
-    fn test_formatter_format_tu_trims_leading_whitespace() {
+#[test]
+fn test_formatter_format_tu_trims_leading_whitespace() {
         let span = Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0, byte_start_idx: 0, byte_end_idx: 0 };
         let item = Item::BlockComment { span, text: String::from("   /* hello */") };
         let tu = TranslationUnit { items: vec![item] };
@@ -85,4 +83,3 @@ mod tests {
         let out = fmt.format_tu(&tu);
         assert_eq!(out, "struct Point { int x; };");
     }
-}

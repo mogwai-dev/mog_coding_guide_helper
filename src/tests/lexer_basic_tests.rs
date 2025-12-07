@@ -1,9 +1,7 @@
-#[cfg(test)]
-mod tests {
-    use crate::lexer::Lexer;
+use crate::lexer::Lexer;
 
-    #[test]
-    fn test_basic_iteration_and_pos() {
+#[test]
+fn test_basic_iteration_and_pos() {
         let s = "ab\nc";
         let mut lx = Lexer::new(s);
 
@@ -48,4 +46,3 @@ mod tests {
         assert_eq!(got, vec!['a', 'é', 'b']);
         assert_eq!(lx.pos_index(), 3);
     }
-}
