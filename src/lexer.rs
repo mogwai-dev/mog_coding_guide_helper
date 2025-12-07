@@ -31,7 +31,7 @@ impl<'a> Lexer<'a> {
     }
 
     // 記号ではないキーワードはここで処理する
-    fn keyword_to_token(&self, byte_idx_start: usize, byte_idx_end: usize, span: Span) -> Option<Token> {
+    fn keyword_to_token(&self, byte_idx_start: usize, byte_idx_end: usize, span: Span) -> Option<Token<'_>> {
         match &self.input[byte_idx_start..byte_idx_end] {
             "auto" => Some(Token::Auto { span }),
             "register" => Some(Token::Register { span }),
@@ -88,7 +88,7 @@ impl<'a> Lexer<'a> {
     }
 
     // トークンを一つ読み取る
-    pub fn next_token(&mut self) -> Option<Token> {
+    pub fn next_token(&mut self) -> Option<Token<'_>> {
         let start_line = self.line;
         let start_column = self.column;
         let mut start_byte_flag: Option<usize> = None;

@@ -102,7 +102,7 @@ impl<'a> Parser<'a> {
                     let start_byte = span.byte_start_idx;
                     let mut end_byte = span.byte_end_idx;
                     let mut struct_name: Option<String> = None;
-                    let mut has_typedef = false;
+                    let has_typedef = false;
                     let mut found_brace = false;
                     let mut brace_depth = 0;
                     
