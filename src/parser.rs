@@ -220,11 +220,142 @@ impl<'a> Parser<'a> {
                         has_typedef,
                     });
                 },
+                Token::Enum(EnumToken { span }) => {
+                    // enum 宣言または列挙型変数宣言
+                    
+                    let start_byte = span.byte_start_idx;
+                    let mut end_byte = span.byte_end_idx;
+                    let mut enum_name: Option<String> = None;
+                    let has_typedef = false;
+                    let mut found_brace = false;
+                    let mut brace_depth = 0;
+                    let mut variable_names = Vec::new();
+                    let mut after_brace_idents = Vec::new();
+                    
+                    loop {
+                        match self.lexer.next_token() {
+                            Some(Token::Ident(IdentToken { name, .. })) => {
+                                if enum_name.is_none() && !found_brace {
+                                    // enum名
+                                    enum_name = Some(name.to_string());
+                                } else if brace_depth == 0 && found_brace {
+                                    // } の後の識別子は変数名
+                                    after_brace_idents.push(name.to_string());
+                                }
+                            },
+                            Some(Token::LeftBrace(..)) => {
+                                brace_depth += 1;
+                                found_brace = true;
+                            },
+                            Some(Token::RightBrace(..)) => {
+                                brace_depth -= 1;
+                            },
+                            Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                end_byte = semi_span.byte_end_idx;
+                                if brace_depth == 0 {
+                                    // セミコロンの前の識別子が変数名
+                                    variable_names = after_brace_idents;
+                                    break;
+                                }
+                            },
+                            Some(Token::Enum(..)) => {
+                                // 内部のenumキーワードはスキップ
+                                continue;
+                            },
+                            Some(_) => {
+                                continue;
+                            },
+                            None => {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    let text = self.lexer.input[start_byte..end_byte].to_string();
+                    let final_span = Span {
+                        start_line: span.start_line,
+                        start_column: span.start_column,
+                        end_line: self.lexer.line,
+                        end_column: self.lexer.column,
+                        byte_start_idx: start_byte,
+                        byte_end_idx: end_byte,
+                    };
+                    items.push(Item::EnumDecl { 
+                        span: final_span, 
+                        text,
+                        enum_name,
+                        has_typedef,
+                        variable_names,
+                    });
+                },
+                Token::Union(UnionToken { span }) => {
+                    let start_byte = span.byte_start_idx;
+                    let mut end_byte = span.byte_end_idx;
+                    let mut union_name: Option<String> = None;
+                    let mut brace_depth = 0;
+                    let mut found_brace = false;
+                    let has_typedef = false;
+                    let mut variable_names = Vec::new();
+                    let mut after_brace_idents = Vec::new();
+
+                    loop {
+                        match self.lexer.next_token() {
+                            Some(Token::Ident(IdentToken { name, .. })) => {
+                                if brace_depth == 0 && !found_brace {
+                                    union_name = Some(name.to_string());
+                                } else if brace_depth == 0 && found_brace {
+                                    after_brace_idents.push(name.to_string());
+                                }
+                            },
+                            Some(Token::LeftBrace(..)) => {
+                                brace_depth += 1;
+                                found_brace = true;
+                            },
+                            Some(Token::RightBrace(..)) => {
+                                brace_depth -= 1;
+                            },
+                            Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                end_byte = semi_span.byte_end_idx;
+                                if brace_depth == 0 {
+                                    variable_names = after_brace_idents;
+                                    break;
+                                }
+                            },
+                            Some(Token::Union(..)) => {
+                                // 内部のunionキーワードはスキップ
+                                continue;
+                            },
+                            Some(_) => {
+                                continue;
+                            },
+                            None => {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    let text = self.lexer.input[start_byte..end_byte].to_string();
+                    let final_span = Span {
+                        start_line: span.start_line,
+                        start_column: span.start_column,
+                        end_line: self.lexer.line,
+                        end_column: self.lexer.column,
+                        byte_start_idx: start_byte,
+                        byte_end_idx: end_byte,
+                    };
+                    items.push(Item::UnionDecl { 
+                        span: final_span, 
+                        text,
+                        union_name,
+                        has_typedef,
+                        variable_names,
+                    });
+                },
                 Token::Typedef(TypedefToken { span }) => {
                     let start_byte = span.byte_start_idx;
                     let mut end_byte = span.byte_end_idx;
                     
-                    // 次のトークンが struct かチェック
+                    // 次のトークンが struct、enum、または union かチェック
                     match self.lexer.next_token() {
                         Some(Token::Struct(..)) => {
                             // typedef struct の処理
@@ -275,6 +406,117 @@ impl<'a> Parser<'a> {
                                 text,
                                 struct_name,
                                 has_typedef: true,
+                            });
+                        },
+                        Some(Token::Enum(..)) => {
+                            // typedef enum の処理
+                            let mut enum_name: Option<String> = None;
+                            let mut brace_depth = 0;
+                            let mut found_brace = false;
+                            let mut variable_names = Vec::new();
+                            let mut after_brace_idents = Vec::new();
+                            
+                            loop {
+                                match self.lexer.next_token() {
+                                    Some(Token::Ident(IdentToken { name, .. })) => {
+                                        if enum_name.is_none() && !found_brace {
+                                            enum_name = Some(name.to_string());
+                                        } else if brace_depth == 0 && found_brace {
+                                            after_brace_idents.push(name.to_string());
+                                        }
+                                    },
+                                    Some(Token::LeftBrace(..)) => {
+                                        brace_depth += 1;
+                                        found_brace = true;
+                                    },
+                                    Some(Token::RightBrace(..)) => {
+                                        brace_depth -= 1;
+                                    },
+                                    Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                        end_byte = semi_span.byte_end_idx;
+                                        if brace_depth == 0 {
+                                            variable_names = after_brace_idents;
+                                            break;
+                                    }
+                                    },
+                                    Some(_) => {
+                                        continue;
+                                    },
+                                    None => {
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            let text = self.lexer.input[start_byte..end_byte].to_string();
+                            let final_span = Span {
+                                start_line: span.start_line,
+                                start_column: span.start_column,
+                                end_line: self.lexer.line,
+                                end_column: self.lexer.column,
+                                byte_start_idx: start_byte,
+                                byte_end_idx: end_byte,
+                            };
+                            items.push(Item::EnumDecl { 
+                                span: final_span, 
+                                text,
+                                enum_name,
+                                has_typedef: true,
+                                variable_names,
+                            });
+                        },
+                        Some(Token::Union(..)) => {
+                            // typedef union の処理
+                            let mut union_name: Option<String> = None;
+                            let mut brace_depth = 0;
+                            let mut found_brace = false;
+                            let mut variable_names = Vec::new();
+                            let mut after_brace_idents = Vec::new();
+
+                            loop {
+                                match self.lexer.next_token() {
+                                    Some(Token::Ident(IdentToken { name, .. })) => {
+                                        if brace_depth == 0 && !found_brace {
+                                            union_name = Some(name.to_string());
+                                        } else if brace_depth == 0 && found_brace {
+                                            after_brace_idents.push(name.to_string());
+                                        }
+                                    },
+                                    Some(Token::LeftBrace(..)) => {
+                                        brace_depth += 1;
+                                        found_brace = true;
+                                    },
+                                    Some(Token::RightBrace(..)) => {
+                                        brace_depth -= 1;
+                                    },
+                                    Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                        end_byte = semi_span.byte_end_idx;
+                                        if brace_depth == 0 {
+                                            variable_names = after_brace_idents;
+                                            break;
+                                        }
+                                    },
+                                    None => break,
+                                    _ => {}
+                                }
+                            }
+
+                            let text = self.lexer.input[start_byte..end_byte].to_string();
+                            let final_span = Span {
+                                start_line: span.start_line,
+                                start_column: span.start_column,
+                                end_line: self.lexer.line,
+                                end_column: self.lexer.column,
+                                byte_start_idx: start_byte,
+                                byte_end_idx: end_byte,
+                            };
+
+                            items.push(Item::UnionDecl {
+                                span: final_span,
+                                text,
+                                union_name,
+                                has_typedef: true,
+                                variable_names,
                             });
                         },
                         _ => {

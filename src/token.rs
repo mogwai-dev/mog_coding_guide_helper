@@ -131,6 +131,16 @@ pub struct StructToken {
 }
 
 #[derive(Debug, Clone)]
+pub struct EnumToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct UnionToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct LeftBraceToken {
     pub span: Span,
 }
@@ -178,6 +188,8 @@ pub enum Token<'a> {
     Signed(SignedToken),
     Unsigned(UnsignedToken),
     Struct(StructToken),
+    Enum(EnumToken),
+    Union(UnionToken),
     LeftBrace(LeftBraceToken),
     RightBrace(RightBraceToken),
     LeftParen(LeftParenToken),

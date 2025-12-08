@@ -1,16 +1,24 @@
 use std::fs;
+use std::env;
 use coding_guide_helper::{Lexer, Parser, Item};
 use coding_guide_helper::token::*;
 
 fn main() {
-    lexer_sample();
-    parser_sample();
+    let args: Vec<String> = env::args().collect();
+    let filename = if args.len() > 1 {
+        &args[1]
+    } else {
+        "example.txt"
+    };
+    
+    lexer_sample(filename);
+    parser_sample(filename);
 }
 
 // lexer_sample() 関数を修正
-fn lexer_sample() {
+fn lexer_sample(filename: &str) {
     println!("[Lexer Sample]");
-    let contents = fs::read_to_string("example.txt").unwrap();
+    let contents = fs::read_to_string(filename).unwrap();
     let mut lx = Lexer::new(&contents);
     
     while let Some(token) = lx.next_token() {
@@ -55,6 +63,12 @@ fn lexer_sample() {
             Token::Struct(StructToken { span }) => {
                 println!("Struct from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
+            Token::Enum(EnumToken { span }) => {
+                println!("Enum from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
+            Token::Union(UnionToken { span }) => {
+                println!("Union from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
             Token::LeftBrace(LeftBraceToken { span }) => {
                 println!("LeftBrace from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
@@ -71,9 +85,9 @@ fn lexer_sample() {
     }
 }
 
-fn parser_sample() {
+fn parser_sample(filename: &str) {
     println!("\n[Parser Sample]");
-    let contents = fs::read_to_string("example.txt").unwrap();
+    let contents = fs::read_to_string(filename).unwrap();
     let lx = Lexer::new(&contents);
     let mut parser = Parser::new(lx);
     let tu = parser.parse();
@@ -103,6 +117,14 @@ fn parser_sample() {
                 println!("FunctionDecl from ({}, {}) to ({}, {}): {} {} {}",
                     span.start_line, span.start_column, span.end_line, span.end_column, 
                     return_type, function_name, parameters);
+            },
+            Item::EnumDecl { span, text, enum_name, variable_names, .. } => {
+                println!("EnumDecl from ({}, {}) to ({}, {}): {:?} (enum_name: {:?}, variables: {:?})", 
+                    span.start_line, span.start_column, span.end_line, span.end_column, text, enum_name, variable_names);
+            },
+            Item::UnionDecl { span, text, union_name, variable_names, .. } => {
+                println!("UnionDecl from ({}, {}) to ({}, {}): {:?} (union_name: {:?}, variables: {:?})", 
+                    span.start_line, span.start_column, span.end_line, span.end_column, text, union_name, variable_names);
             },
         }
     }

@@ -53,6 +53,8 @@ impl<'a> Lexer<'a> {
             "signed" => Some(Token::Signed(SignedToken { span })),
             "unsigned" => Some(Token::Unsigned(UnsignedToken { span })),
             "struct" => Some(Token::Struct(StructToken { span })),
+            "enum" => Some(Token::Enum(EnumToken { span })),
+            "union" => Some(Token::Union(UnionToken { span })),
             _ => Some(Token::Ident(IdentToken {
                 span,
                 name: &self.input[byte_idx_start..byte_idx_end],

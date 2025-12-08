@@ -1,0 +1,17 @@
+/* Simple enum */
+enum Color { RED, GREEN, BLUE };
+
+/* Anonymous enum */
+enum { UNKNOWN, ERROR };
+
+/* Typedef enum */
+typedef enum { SUCCESS, FAILURE } Status;
+
+/* Enum with variables */
+enum State { IDLE, RUNNING } state1, state2;
+
+/* Enum with values */
+enum Priority { LOW = 0, MEDIUM = 1, HIGH = 2 };
+
+/* Named typedef enum */
+typedef enum Direction { NORTH, SOUTH, EAST, WEST } Direction;

@@ -9,3 +9,5 @@ mod lexer_keyword_tests;
 mod parser_tests;
 mod formatter_tests;
 mod function_tests;
+mod enum_tests;
+mod union_tests;

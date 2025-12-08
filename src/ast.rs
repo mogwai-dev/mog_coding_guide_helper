@@ -23,6 +23,20 @@ pub enum Item {
         struct_name: Option<String>,  // 無名構造体の場合は None
         has_typedef: bool,            // typedef struct の場合 true
     },
+    EnumDecl {
+        span: Span,
+        text: String,
+        enum_name: Option<String>,    // 無名enumの場合は None
+        has_typedef: bool,            // typedef enum の場合 true
+        variable_names: Vec<String>,  // 同時に宣言された変数のリスト
+    },
+    UnionDecl {
+        span: Span,
+        text: String,
+        union_name: Option<String>,   // 無名unionの場合は None
+        has_typedef: bool,            // typedef union の場合 true
+        variable_names: Vec<String>,  // 同時に宣言された変数のリスト
+    },
     FunctionDecl {
         span: Span,
         text: String,
