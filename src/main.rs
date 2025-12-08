@@ -113,10 +113,12 @@ fn parser_sample(filename: &str) {
                 println!("StructDecl from ({}, {}) to ({}, {}): {:?} (struct_name: {:?}, has_typedef: {})", 
                     span.start_line, span.start_column, span.end_line, span.end_column, text, struct_name, has_typedef);
             },
-            Item::FunctionDecl { span, return_type, function_name, parameters, .. } => {
-                println!("FunctionDecl from ({}, {}) to ({}, {}): {} {} {}",
+            Item::FunctionDecl { span, return_type, function_name, parameters, storage_class, .. } => {
+                let storage_str = storage_class.as_deref().unwrap_or("");
+                let prefix = if storage_str.is_empty() { String::new() } else { format!("{} ", storage_str) };
+                println!("FunctionDecl from ({}, {}) to ({}, {}): {}{} {} {}",
                     span.start_line, span.start_column, span.end_line, span.end_column, 
-                    return_type, function_name, parameters);
+                    prefix, return_type, function_name, parameters);
             },
             Item::EnumDecl { span, text, enum_name, variable_names, .. } => {
                 println!("EnumDecl from ({}, {}) to ({}, {}): {:?} (enum_name: {:?}, variables: {:?})", 

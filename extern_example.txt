@@ -1,0 +1,10 @@
+/* Extern variable declarations */
+extern int global_counter;
+extern char* app_name;
+
+/* Extern function declarations */
+extern void init_system(void);
+extern int calculate(int a, int b);
+
+/* Extern array */
+extern unsigned char buffer[1024];

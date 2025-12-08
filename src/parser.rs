@@ -139,7 +139,24 @@ impl<'a> Parser<'a> {
                     
                     if is_function {
                         // 関数定義
-                        let return_type = self.lexer.input[start_byte..function_name_start].trim().to_string();
+                        let full_prefix = self.lexer.input[start_byte..function_name_start].trim();
+                        
+                        // storage class を抽出
+                        let storage_class = if full_prefix.starts_with("static ") {
+                            Some("static".to_string())
+                        } else if full_prefix.starts_with("extern ") {
+                            Some("extern".to_string())
+                        } else {
+                            None
+                        };
+                        
+                        // return_type から storage class を除外
+                        let return_type = if let Some(ref sc) = storage_class {
+                            full_prefix.strip_prefix(sc).unwrap_or(full_prefix).trim().to_string()
+                        } else {
+                            full_prefix.to_string()
+                        };
+                        
                         let parameters = self.lexer.input[params_start_byte..params_end_byte].to_string();
                         
                         items.push(Item::FunctionDecl {
@@ -148,7 +165,7 @@ impl<'a> Parser<'a> {
                             return_type,
                             function_name,
                             parameters,
-                            storage_class: None, // TODO: 記憶域クラスの検出
+                            storage_class,
                         });
                     } else {
                         // 変数宣言

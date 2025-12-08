@@ -11,3 +11,4 @@ mod formatter_tests;
 mod function_tests;
 mod enum_tests;
 mod union_tests;
+mod extern_tests;
