@@ -8,3 +8,4 @@ mod lexer_typedef_tests;
 mod lexer_keyword_tests;
 mod parser_tests;
 mod formatter_tests;
+mod function_tests;

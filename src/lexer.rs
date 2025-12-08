@@ -210,6 +210,52 @@ impl<'a> Lexer<'a> {
                         }
                     }));
                 },
+                Some((byte_idx, '(')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+
+                    return Some(Token::LeftParen(LeftParenToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, ')')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+
+                    return Some(Token::RightParen(RightParenToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
                 Some((byte_idx, '/')) => {
                     if start_byte_flag.is_none() {
                         start_byte_flag = Some(byte_idx);

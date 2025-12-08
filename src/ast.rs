@@ -23,4 +23,12 @@ pub enum Item {
         struct_name: Option<String>,  // 無名構造体の場合は None
         has_typedef: bool,            // typedef struct の場合 true
     },
+    FunctionDecl {
+        span: Span,
+        text: String,
+        return_type: String,           // 戻り値の型（"int", "void" など）
+        function_name: String,         // 関数名
+        parameters: String,            // 引数リスト（"(void)", "(int x, char *y)" など）
+        storage_class: Option<String>, // 記憶域クラス（"static" など）
+    },
 }

@@ -140,6 +140,16 @@ pub struct RightBraceToken {
     pub span: Span,
 }
 
+#[derive(Debug, Clone)]
+pub struct LeftParenToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct RightParenToken {
+    pub span: Span,
+}
+
 // トークンの enum
 #[derive(Debug)]
 pub enum Token<'a> {
@@ -170,5 +180,7 @@ pub enum Token<'a> {
     Struct(StructToken),
     LeftBrace(LeftBraceToken),
     RightBrace(RightBraceToken),
+    LeftParen(LeftParenToken),
+    RightParen(RightParenToken),
 }
 

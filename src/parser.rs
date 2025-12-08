@@ -42,12 +42,61 @@ impl<'a> Parser<'a> {
                     let mut end_byte = span.byte_end_idx;
                     let mut var_name = String::new();
                     let mut has_initializer = false;
+                    let mut is_function = false;
+                    let mut function_name = String::new();
+                    let mut function_name_start = 0;
+                    let mut params_start_byte = 0;
+                    let mut params_end_byte = 0;
                     
                     loop {
                         match self.lexer.next_token() {
                             Some(Token::Ident(IdentToken { span: id_span, name })) => {
                                 var_name = name.to_string();
+                                function_name = name.to_string();
+                                function_name_start = id_span.byte_start_idx;
                                 end_byte = id_span.byte_end_idx;
+                            },
+                            Some(Token::LeftParen(LeftParenToken { span: lparen_span })) => {
+                                // 関数定義の可能性
+                                is_function = true;
+                                params_start_byte = lparen_span.byte_start_idx;
+                                
+                                // 括弧の中を読み飛ばす
+                                let mut paren_depth = 1;
+                                loop {
+                                    match self.lexer.next_token() {
+                                        Some(Token::LeftParen(..)) => paren_depth += 1,
+                                        Some(Token::RightParen(RightParenToken { span: rparen_span })) => {
+                                            paren_depth -= 1;
+                                            params_end_byte = rparen_span.byte_end_idx;
+                                            end_byte = rparen_span.byte_end_idx;
+                                            if paren_depth == 0 {
+                                                break;
+                                            }
+                                        },
+                                        Some(_) => continue,
+                                        None => break,
+                                    }
+                                }
+                            },
+                            Some(Token::LeftBrace(..)) if is_function => {
+                                // 関数ブロックの開始 - 中身を読み飛ばす
+                                let mut brace_depth = 1;
+                                loop {
+                                    match self.lexer.next_token() {
+                                        Some(Token::LeftBrace(..)) => brace_depth += 1,
+                                        Some(Token::RightBrace(RightBraceToken { span: rbrace_span })) => {
+                                            brace_depth -= 1;
+                                            end_byte = rbrace_span.byte_end_idx;
+                                            if brace_depth == 0 {
+                                                break;
+                                            }
+                                        },
+                                        Some(_) => continue,
+                                        None => break,
+                                    }
+                                }
+                                break;
                             },
                             Some(Token::Equal(EqualToken { span: eq_span })) => {
                                 has_initializer = true;
@@ -55,9 +104,7 @@ impl<'a> Parser<'a> {
                             },
                             Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
                                 end_byte = semi_span.byte_end_idx;
-                            //    if brace_depth == 0 {
-                                    break;
-                            //    }
+                                break;
                             },
                             // 記憶域クラス指定子、型修飾子、型指定子は読み飛ばす
                             Some(Token::Auto(..)) | Some(Token::Register(..)) | 
@@ -89,12 +136,29 @@ impl<'a> Parser<'a> {
                         byte_start_idx: start_byte,
                         byte_end_idx: end_byte,
                     };
-                    items.push(Item::VarDecl { 
-                        span: final_span, 
-                        text,
-                        var_name,
-                        has_initializer,
-                    });
+                    
+                    if is_function {
+                        // 関数定義
+                        let return_type = self.lexer.input[start_byte..function_name_start].trim().to_string();
+                        let parameters = self.lexer.input[params_start_byte..params_end_byte].to_string();
+                        
+                        items.push(Item::FunctionDecl {
+                            span: final_span,
+                            text,
+                            return_type,
+                            function_name,
+                            parameters,
+                            storage_class: None, // TODO: 記憶域クラスの検出
+                        });
+                    } else {
+                        // 変数宣言
+                        items.push(Item::VarDecl { 
+                            span: final_span, 
+                            text,
+                            var_name,
+                            has_initializer,
+                        });
+                    }
                 },
                 Token::Struct(StructToken { span }) => {
                     // struct 宣言または構造体変数宣言

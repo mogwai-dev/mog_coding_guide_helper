@@ -61,6 +61,12 @@ fn lexer_sample() {
             Token::RightBrace(RightBraceToken { span }) => {
                 println!("RightBrace from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
+            Token::LeftParen(LeftParenToken { span }) => {
+                println!("LeftParen from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
+            Token::RightParen(RightParenToken { span }) => {
+                println!("RightParen from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
         }
     }
 }
@@ -92,6 +98,11 @@ fn parser_sample() {
             Item::StructDecl { span, text, struct_name, has_typedef } => {
                 println!("StructDecl from ({}, {}) to ({}, {}): {:?} (struct_name: {:?}, has_typedef: {})", 
                     span.start_line, span.start_column, span.end_line, span.end_column, text, struct_name, has_typedef);
+            },
+            Item::FunctionDecl { span, return_type, function_name, parameters, .. } => {
+                println!("FunctionDecl from ({}, {}) to ({}, {}): {} {} {}",
+                    span.start_line, span.start_column, span.end_line, span.end_column, 
+                    return_type, function_name, parameters);
             },
         }
     }

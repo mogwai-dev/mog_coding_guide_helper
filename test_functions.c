@@ -1,4 +1,4 @@
-﻿/* Sample C code */
+/* Sample C code */
 #include <stdio.h>
 
 int add(int a, int b) {
