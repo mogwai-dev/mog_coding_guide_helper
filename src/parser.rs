@@ -3,6 +3,15 @@ use crate::token::*;
 use crate::ast::{TranslationUnit, Item};
 use crate::span::Span;
 
+// parse_items の停止理由
+#[derive(Debug, Clone)]
+enum StopReason {
+    Elif(Span),
+    Else(Span),
+    Endif(Span),
+    Eof,
+}
+
 #[derive(Debug)]
 pub struct Parser<'a> {
     pub lexer: Lexer<'a>,
@@ -14,6 +23,13 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(&mut self) -> TranslationUnit {
+        let (items, _) = self.parse_items(false);
+        TranslationUnit { items }
+    }
+
+    // stop_at_endif: true の場合、#elif/#else/#endif で停止
+    // 戻り値: (items, stop_reason)
+    fn parse_items(&mut self, stop_at_endif: bool) -> (Vec<Item>, StopReason) {
         let mut items = Vec::new();
 
         while let Some(token) = self.lexer.next_token() {
@@ -29,6 +45,47 @@ impl<'a> Parser<'a> {
                 Token::Define(DefineToken { span, macro_name, macro_value }) => {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
                     items.push(Item::Define { span, text, macro_name, macro_value });
+                },
+                // Stage 1: 条件コンパイルブロック
+                Token::Ifdef(IfdefToken { span }) => {
+                    let block = self.parse_conditional_block(span, "ifdef");
+                    items.push(block);
+                },
+                Token::Ifndef(IfndefToken { span }) => {
+                    let block = self.parse_conditional_block(span, "ifndef");
+                    items.push(block);
+                },
+                Token::If(IfToken { span }) => {
+                    let block = self.parse_conditional_block(span, "if");
+                    items.push(block);
+                },
+                // Stage 2: #elif, #else, #endif の処理
+                Token::Elif(ElifToken { span }) => {
+                    if stop_at_endif {
+                        // 条件コンパイルブロック内で#elifに遭遇 - 停止して理由を返す
+                        return (items, StopReason::Elif(span));
+                    } else {
+                        // エラー：対応する #ifdef がない（とりあえず無視）
+                        continue;
+                    }
+                },
+                Token::Else(ElseToken { span }) => {
+                    if stop_at_endif {
+                        // 条件コンパイルブロック内で#elseに遭遇 - 停止して理由を返す
+                        return (items, StopReason::Else(span));
+                    } else {
+                        // エラー：対応する #ifdef がない（とりあえず無視）
+                        continue;
+                    }
+                },
+                Token::Endif(EndifToken { span }) => {
+                    if stop_at_endif {
+                        // 条件コンパイルブロックの終わり - 停止して理由を返す
+                        return (items, StopReason::Endif(span));
+                    } else {
+                        // エラー：対応する #ifdef がない（とりあえず無視）
+                        continue;
+                    }
                 },
                 // ★ 古い Token::Typedef のケースを削除（534-556行目）
                 // 記憶域クラス指定子、型修飾子、型指定子で始まる変数宣言
@@ -568,6 +625,127 @@ impl<'a> Parser<'a> {
             }
         }
 
-        TranslationUnit { items }
+        (items, StopReason::Eof)
+    }
+
+    // Stage 2: 条件コンパイルブロックを解析（#ifdef から #endif まで）
+    // #elif/#else も子ブロックとして扱う
+    fn parse_conditional_block(&mut self, start_span: Span, directive_type: &str) -> Item {
+        let condition = self.extract_condition(&start_span);
+        
+        // このブロック（#ifdef/#ifndef/#if）内のアイテムを解析
+        let (mut block_items, stop_reason) = self.parse_items(true);
+        
+        // parse_items が終了した理由を確認（#elif, #else, #endif のいずれか、またはEOF）
+        match stop_reason {
+            StopReason::Elif(span) => {
+                // #elif ブロックを子アイテムとして追加し、再帰的に処理
+                let elif_block = self.parse_conditional_block(span, "elif");
+                
+                // end_span は #elif ブロックの end_span を使う
+                let end_span = if let Item::ConditionalBlock { end_span, .. } = &elif_block {
+                    end_span.clone()
+                } else {
+                    start_span.clone()
+                };
+                
+                block_items.push(elif_block);
+                
+                return Item::ConditionalBlock {
+                    directive_type: directive_type.to_string(),
+                    condition,
+                    items: block_items,
+                    start_span,
+                    end_span,
+                };
+            },
+            StopReason::Else(span) => {
+                // #else ブロックを子アイテムとして追加
+                let (else_items, end_reason) = self.parse_items(true);
+                
+                // #else の後は必ず #endif が来るはず
+                let end_span = if let StopReason::Endif(span) = end_reason {
+                    span
+                } else {
+                    span.clone()
+                };
+                
+                let else_block = Item::ConditionalBlock {
+                    directive_type: "else".to_string(),
+                    condition: String::new(),
+                    items: else_items,
+                    start_span: span.clone(),
+                    end_span: end_span.clone(),
+                };
+                block_items.push(else_block);
+                
+                // #endif を子アイテムとして追加
+                block_items.push(Item::ConditionalBlock {
+                    directive_type: "endif".to_string(),
+                    condition: String::new(),
+                    items: Vec::new(),
+                    start_span: end_span.clone(),
+                    end_span: end_span.clone(),
+                });
+                
+                return Item::ConditionalBlock {
+                    directive_type: directive_type.to_string(),
+                    condition,
+                    items: block_items,
+                    start_span,
+                    end_span,
+                };
+            },
+            StopReason::Endif(span) => {
+                // #endif で終了
+                let end_span = span;
+                
+                // #endif を子アイテムとして追加
+                block_items.push(Item::ConditionalBlock {
+                    directive_type: "endif".to_string(),
+                    condition: String::new(),
+                    items: Vec::new(),
+                    start_span: end_span.clone(),
+                    end_span: end_span.clone(),
+                });
+                
+                return Item::ConditionalBlock {
+                    directive_type: directive_type.to_string(),
+                    condition,
+                    items: block_items,
+                    start_span,
+                    end_span,
+                };
+            },
+            StopReason::Eof => {
+                // EOF など、#endif がない場合
+                return Item::ConditionalBlock {
+                    directive_type: directive_type.to_string(),
+                    condition,
+                    items: block_items,
+                    start_span: start_span.clone(),
+                    end_span: start_span,
+                };
+            }
+        }
+    }
+
+    // 条件式を抽出
+    fn extract_condition(&self, span: &Span) -> String {
+        let text = &self.lexer.input[span.byte_start_idx..span.byte_end_idx];
+        // "#ifdef DEBUG\n" -> "DEBUG" を抽出
+        let content = text.trim_start_matches('#').trim();
+        
+        if let Some(rest) = content.strip_prefix("ifdef") {
+            rest.trim().trim_end_matches(&['\r', '\n'][..]).to_string()
+        } else if let Some(rest) = content.strip_prefix("ifndef") {
+            rest.trim().trim_end_matches(&['\r', '\n'][..]).to_string()
+        } else if let Some(rest) = content.strip_prefix("elif") {
+            rest.trim().trim_end_matches(&['\r', '\n'][..]).to_string()
+        } else if content.starts_with("if") {
+            content.strip_prefix("if").unwrap().trim().trim_end_matches(&['\r', '\n'][..]).to_string()
+        } else {
+            String::new()
+        }
     }
 }

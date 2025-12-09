@@ -81,6 +81,10 @@ fn lexer_sample(filename: &str) {
             Token::RightParen(RightParenToken { span }) => {
                 println!("RightParen from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
+            Token::Ifdef(IfdefToken { span }) | Token::Ifndef(IfndefToken { span }) | Token::If(IfToken { span }) |
+            Token::Elif(ElifToken { span }) | Token::Else(ElseToken { span }) | Token::Endif(EndifToken { span }) => {
+                println!("Conditional directive from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
         }
     }
 }
@@ -92,42 +96,55 @@ fn parser_sample(filename: &str) {
     let mut parser = Parser::new(lx);
     let tu = parser.parse();
 
-    for item in tu.items {
-        match item {
-            Item::BlockComment { span, text  } => {
-                println!("Block comment from ({}, {}) to ({}, {}): {:?} ", span.start_line, span.start_column, span.end_line, span.end_column, text);
-            },
-            Item::Include { span, text, filename } => {
-                println!("Include from ({}, {}) to ({}, {}): {:?} (filename: {})", span.start_line, span.start_column, span.end_line, span.end_column, text, filename);
-            },
-            Item::Define { span, text, macro_name, macro_value } => {
-                println!("Define from ({}, {}) to ({}, {}): {:?} (macro: {}, value: {})", span.start_line, span.start_column, span.end_line, span.end_column, text, macro_name, macro_value);
-            },
-            Item::TypedefDecl { span, text } => {
-                println!("TypedefDecl from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, text);
-            },
-            Item::VarDecl { span, text, var_name, has_initializer } => {
-                println!("VarDecl from ({}, {}) to ({}, {}): {:?} (var_name: {}, has_initializer: {})", span.start_line, span.start_column, span.end_line, span.end_column, text, var_name, has_initializer);
-            },
-            Item::StructDecl { span, text, struct_name, has_typedef } => {
-                println!("StructDecl from ({}, {}) to ({}, {}): {:?} (struct_name: {:?}, has_typedef: {})", 
-                    span.start_line, span.start_column, span.end_line, span.end_column, text, struct_name, has_typedef);
-            },
-            Item::FunctionDecl { span, return_type, function_name, parameters, storage_class, .. } => {
-                let storage_str = storage_class.as_deref().unwrap_or("");
-                let prefix = if storage_str.is_empty() { String::new() } else { format!("{} ", storage_str) };
-                println!("FunctionDecl from ({}, {}) to ({}, {}): {}{} {} {}",
-                    span.start_line, span.start_column, span.end_line, span.end_column, 
-                    prefix, return_type, function_name, parameters);
-            },
-            Item::EnumDecl { span, text, enum_name, variable_names, .. } => {
-                println!("EnumDecl from ({}, {}) to ({}, {}): {:?} (enum_name: {:?}, variables: {:?})", 
-                    span.start_line, span.start_column, span.end_line, span.end_column, text, enum_name, variable_names);
-            },
-            Item::UnionDecl { span, text, union_name, variable_names, .. } => {
-                println!("UnionDecl from ({}, {}) to ({}, {}): {:?} (union_name: {:?}, variables: {:?})", 
-                    span.start_line, span.start_column, span.end_line, span.end_column, text, union_name, variable_names);
-            },
-        }
+    for item in &tu.items {
+        print_item(item, 0);
     }
 }
+
+fn print_item(item: &Item, indent: usize) {
+    let indent_str = "  ".repeat(indent);
+    match item {
+        Item::BlockComment { span, text } => {
+            println!("{}BlockComment from ({}, {}) to ({}, {}): {:?}", indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text);
+        },
+        Item::Include { span, text, filename } => {
+            println!("{}Include from ({}, {}) to ({}, {}): {:?} (filename: {})", indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text, filename);
+        },
+        Item::Define { span, text, macro_name, macro_value } => {
+            println!("{}Define from ({}, {}) to ({}, {}): {:?} (macro: {}, value: {})", indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text, macro_name, macro_value);
+        },
+        Item::ConditionalBlock { directive_type, condition, items, start_span: _, end_span } => {
+            println!("{}ConditionalBlock #{} {} {{", indent_str, directive_type, condition);
+            for inner_item in items {
+                print_item(inner_item, indent + 1);
+            }
+            println!("{}}} // #endif at ({}, {})", indent_str, end_span.end_line, end_span.end_column);
+        },
+        Item::TypedefDecl { span, text } => {
+            println!("{}TypedefDecl from ({}, {}) to ({}, {}): {:?}", indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text);
+        },
+        Item::VarDecl { span, text, var_name, has_initializer } => {
+            println!("{}VarDecl from ({}, {}) to ({}, {}): {:?} (var_name: {}, has_initializer: {})", indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text, var_name, has_initializer);
+        },
+        Item::StructDecl { span, text, struct_name, has_typedef } => {
+            println!("{}StructDecl from ({}, {}) to ({}, {}): {:?} (struct_name: {:?}, has_typedef: {})", 
+                indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text, struct_name, has_typedef);
+        },
+        Item::FunctionDecl { span, return_type, function_name, parameters, storage_class, .. } => {
+            let storage_str = storage_class.as_deref().unwrap_or("");
+            let prefix = if storage_str.is_empty() { String::new() } else { format!("{} ", storage_str) };
+            println!("{}FunctionDecl from ({}, {}) to ({}, {}): {}{} {} {}",
+                indent_str, span.start_line, span.start_column, span.end_line, span.end_column, 
+                prefix, return_type, function_name, parameters);
+        },
+        Item::EnumDecl { span, text, enum_name, variable_names, .. } => {
+            println!("{}EnumDecl from ({}, {}) to ({}, {}): {:?} (enum_name: {:?}, variables: {:?})", 
+                indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text, enum_name, variable_names);
+        },
+        Item::UnionDecl { span, text, union_name, variable_names, .. } => {
+            println!("{}UnionDecl from ({}, {}) to ({}, {}): {:?} (union_name: {:?}, variables: {:?})", 
+                indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text, union_name, variable_names);
+        },
+    }
+}
+

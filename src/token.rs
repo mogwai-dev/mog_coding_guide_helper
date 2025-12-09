@@ -160,12 +160,49 @@ pub struct RightParenToken {
     pub span: Span,
 }
 
+// Conditional compilation directive tokens
+#[derive(Debug, Clone)]
+pub struct IfdefToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct IfndefToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct IfToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ElifToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ElseToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct EndifToken {
+    pub span: Span,
+}
+
 // トークンの enum
 #[derive(Debug)]
 pub enum Token<'a> {
     BlockComment(BlockCommentToken),
     Include(IncludeToken),
     Define(DefineToken),
+    Ifdef(IfdefToken),
+    Ifndef(IfndefToken),
+    If(IfToken),
+    Elif(ElifToken),
+    Else(ElseToken),
+    Endif(EndifToken),
     Semicolon(SemicolonToken),
     Equal(EqualToken),
     Ident(IdentToken<'a>),

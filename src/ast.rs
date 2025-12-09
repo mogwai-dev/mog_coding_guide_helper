@@ -10,6 +10,14 @@ pub enum Item {
     BlockComment { span: Span, text: String },
     Include { span: Span, text: String, filename: String },
     Define { span: Span, text: String, macro_name: String, macro_value: String },
+    // Stage 1: 条件コンパイルブロック（#ifdef から #endif まで）
+    ConditionalBlock { 
+        directive_type: String,  // "ifdef", "ifndef", "if"
+        condition: String,       // 条件式（"DEBUG", "defined(FEATURE)" など）
+        items: Vec<Item>,        // ブロック内のアイテム
+        start_span: Span,        // #ifdef のspan
+        end_span: Span,          // #endif のspan
+    },
     TypedefDecl { span: Span, text: String },
     VarDecl { 
         span: Span, 

@@ -12,3 +12,4 @@ mod function_tests;
 mod enum_tests;
 mod union_tests;
 mod extern_tests;
+mod ifdef_tests;

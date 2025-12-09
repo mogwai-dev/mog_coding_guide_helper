@@ -390,9 +390,9 @@ impl<'a> Lexer<'a> {
                     if let Some(rest) = content.strip_prefix("define") {
                         let rest = rest.trim();
                         let mut parts = rest.splitn(2, ' ');
-                        if let (Some(name), Some(value)) = (parts.next(), parts.next()) {
+                        if let Some(name) = parts.next() {
                             let macro_name = name.to_string();
-                            let macro_value = value.to_string();
+                            let macro_value = parts.next().unwrap_or("").to_string();
 
                             return Some(Token::Define(DefineToken {
                                 span: Span {
@@ -407,6 +407,90 @@ impl<'a> Lexer<'a> {
                                 macro_value,
                             }));
                         }
+                    }
+
+                    // #ifdef の処理
+                    if let Some(_rest) = content.strip_prefix("ifdef") {
+                        return Some(Token::Ifdef(IfdefToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line,
+                                end_column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte_idx,
+                            },
+                        }));
+                    }
+
+                    // #ifndef の処理
+                    if let Some(_rest) = content.strip_prefix("ifndef") {
+                        return Some(Token::Ifndef(IfndefToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line,
+                                end_column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte_idx,
+                            },
+                        }));
+                    }
+
+                    // #if の処理
+                    if content.starts_with("if") && !content.starts_with("ifdef") && !content.starts_with("ifndef") {
+                        return Some(Token::If(IfToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line,
+                                end_column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte_idx,
+                            },
+                        }));
+                    }
+
+                    // #elif の処理
+                    if let Some(_rest) = content.strip_prefix("elif") {
+                        return Some(Token::Elif(ElifToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line,
+                                end_column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte_idx,
+                            },
+                        }));
+                    }
+
+                    // #else の処理
+                    if content.starts_with("else") {
+                        return Some(Token::Else(ElseToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line,
+                                end_column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte_idx,
+                            },
+                        }));
+                    }
+
+                    // #endif の処理
+                    if content.starts_with("endif") {
+                        return Some(Token::Endif(EndifToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line,
+                                end_column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte_idx,
+                            },
+                        }));
                     }
 
                     // それ以外の # 系ディレクティブはとりあえず Include 風に生テキストを残す（既存互換）
