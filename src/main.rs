@@ -109,29 +109,26 @@ fn parser_sample(filename: &str) {
 fn print_item(item: &Item, indent: usize) {
     let indent_str = "  ".repeat(indent);
     match item {
-        Item::BlockComment { span, text } => {
-            println!("{}BlockComment from ({}, {}) to ({}, {}): {:?}", indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text);
-        },
-        Item::Include { span, text, filename } => {
+        Item::Include { span, text, filename, .. } => {
             println!("{}Include from ({}, {}) to ({}, {}): {:?} (filename: {})", indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text, filename);
         },
-        Item::Define { span, text, macro_name, macro_value } => {
+        Item::Define { span, text, macro_name, macro_value, .. } => {
             println!("{}Define from ({}, {}) to ({}, {}): {:?} (macro: {}, value: {})", indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text, macro_name, macro_value);
         },
-        Item::ConditionalBlock { directive_type, condition, items, start_span: _, end_span } => {
+        Item::ConditionalBlock { directive_type, condition, items, start_span: _, end_span, .. } => {
             println!("{}ConditionalBlock #{} {} {{", indent_str, directive_type, condition);
             for inner_item in items {
                 print_item(inner_item, indent + 1);
             }
             println!("{}}} // #endif at ({}, {})", indent_str, end_span.end_line, end_span.end_column);
         },
-        Item::TypedefDecl { span, text } => {
+        Item::TypedefDecl { span, text, .. } => {
             println!("{}TypedefDecl from ({}, {}) to ({}, {}): {:?}", indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text);
         },
-        Item::VarDecl { span, text, var_name, has_initializer } => {
+        Item::VarDecl { span, text, var_name, has_initializer, .. } => {
             println!("{}VarDecl from ({}, {}) to ({}, {}): {:?} (var_name: {}, has_initializer: {})", indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text, var_name, has_initializer);
         },
-        Item::StructDecl { span, text, struct_name, has_typedef } => {
+        Item::StructDecl { span, text, struct_name, has_typedef, .. } => {
             println!("{}StructDecl from ({}, {}) to ({}, {}): {:?} (struct_name: {:?}, has_typedef: {})", 
                 indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text, struct_name, has_typedef);
         },

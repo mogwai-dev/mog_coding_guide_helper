@@ -63,13 +63,11 @@ fn test_parser_includes_produced_items() {
         let mut parser = Parser::new(lx);
         let tu = parser.parse();
 
-        assert_eq!(tu.items.len(), 4, "Should parse 4 items");
+        // BlockCommentはTriviaに移行したため、itemsは2つ
+        assert_eq!(tu.items.len(), 2, "Should parse 2 items (comments moved to trivia)");
 
         for item in &tu.items {
             match item {
-                Item::BlockComment { text, .. } => {
-                    assert!(text.contains("はじまり") || text.contains("おわり"));
-                }
                 Item::Define { text, macro_name, macro_value, .. } => {
                     assert_eq!(macro_name, "A");
                     assert_eq!(macro_value, "B");
@@ -196,12 +194,13 @@ fn test_parser_includes_produced_items() {
         let mut parser = Parser::new(lx);
         let tu = parser.parse();
 
-        assert_eq!(tu.items.len(), 4);
+        // BlockCommentはTriviaに移行したため、itemsは3つになる
+        assert_eq!(tu.items.len(), 3);
         
-        assert!(matches!(&tu.items[0], Item::BlockComment { .. }));
-        assert!(matches!(&tu.items[1], Item::Include { .. }));
-        assert!(matches!(&tu.items[2], Item::VarDecl { .. }));
-        assert!(matches!(&tu.items[3], Item::TypedefDecl { .. }));
+        // assert!(matches!(&tu.items[0], Item::BlockComment { .. }));  // Triviaに移行
+        assert!(matches!(&tu.items[0], Item::Include { .. }));
+        assert!(matches!(&tu.items[1], Item::VarDecl { .. }));
+        assert!(matches!(&tu.items[2], Item::TypedefDecl { .. }));
     }
 
     #[test]

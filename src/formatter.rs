@@ -35,24 +35,16 @@ impl Formatter {
             s.push_str(FILE_HEADER_TEMPLATE);
         }
         
+        // ファイル先頭のコメント（leading_trivia）を出力
+        self.format_trivia(&tu.leading_trivia, &mut s);
+        
         for item in &tu.items {
+            // アイテム前のコメント（leading trivia）を出力
+            if let Some(trivia) = self.get_item_trivia(item) {
+                self.format_trivia(trivia, &mut s);
+            }
+            
             match item {
-                Item::BlockComment { text, .. } => {
-                    // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
-                    let first_non_ws = text
-                        .char_indices()
-                        .find(|&(_, ch)| !ch.is_whitespace())
-                        .map(|(i, _)| i)
-                        .unwrap_or(text.len());
-
-                    // 先頭の空白部分から改行だけ取り出して保持する
-                    let leading = &text[..first_non_ws];
-                    let kept_newlines: String = leading.chars().filter(|&c| c == '\n').collect();
-
-                    // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
-                    s.push_str(&kept_newlines);
-                    s.push_str(&text[first_non_ws..]);
-                },
                 Item::Include { text, ..} => {
                     // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
                     let first_non_ws = text
@@ -208,18 +200,13 @@ impl Formatter {
     // 個別のアイテムをフォーマット（再帰用）
     fn format_item(&self, item: &Item) -> String {
         let mut s = String::new();
+        
+        // アイテム前のコメント（leading trivia）を出力
+        if let Some(trivia) = self.get_item_trivia(item) {
+            self.format_trivia(trivia, &mut s);
+        }
+        
         match item {
-            Item::BlockComment { text, .. } => {
-                let first_non_ws = text
-                    .char_indices()
-                    .find(|&(_, ch)| !ch.is_whitespace())
-                    .map(|(i, _)| i)
-                    .unwrap_or(text.len());
-                let leading = &text[..first_non_ws];
-                let kept_newlines: String = leading.chars().filter(|&c| c == '\n').collect();
-                s.push_str(&kept_newlines);
-                s.push_str(&text[first_non_ws..]);
-            },
             Item::Include { text, ..} => {
                 let first_non_ws = text
                     .char_indices()
@@ -294,11 +281,10 @@ impl Formatter {
                 }
                 s
             },
-            Item::BlockComment { text, .. } | Item::Include { text, .. } | 
-            Item::Define { text, .. } | Item::TypedefDecl { text, .. } |
-            Item::VarDecl { text, .. } | Item::StructDecl { text, .. } |
-            Item::FunctionDecl { text, .. } | Item::EnumDecl { text, .. } |
-            Item::UnionDecl { text, .. } => {
+            Item::Include { text, .. } | Item::Define { text, .. } | 
+            Item::TypedefDecl { text, .. } | Item::VarDecl { text, .. } | 
+            Item::StructDecl { text, .. } | Item::FunctionDecl { text, .. } | 
+            Item::EnumDecl { text, .. } | Item::UnionDecl { text, .. } => {
                 text.clone()
             }
         }
@@ -306,24 +292,18 @@ impl Formatter {
 
     /// ファイルヘッダーコメントがあるかチェック
     fn has_file_header(&self, tu: &TranslationUnit) -> bool {
-        // 最初の連続するブロックコメントを結合してチェック
-        let mut combined_text = String::new();
-        let mut found_comments = false;
+        use crate::trivia::Comment;
         
-        for item in &tu.items {
-            match item {
-                Item::BlockComment { text, .. } => {
-                    combined_text.push_str(text);
-                    found_comments = true;
-                },
-                _ => {
-                    // ブロックコメント以外が出てきたら終了
-                    break;
-                }
+        // leading_triviaからブロックコメントを結合してチェック
+        let mut combined_text = String::new();
+        
+        for comment in &tu.leading_trivia.leading {
+            if let Comment::Block { text, .. } = comment {
+                combined_text.push_str(text);
             }
         }
         
-        if !found_comments {
+        if combined_text.is_empty() {
             return false;
         }
         
@@ -333,5 +313,40 @@ impl Formatter {
             && lower_text.contains("date") 
             && lower_text.contains("purpose")
     }
+
+    /// Triviaをフォーマットして文字列に追加
+    fn format_trivia(&self, trivia: &crate::trivia::Trivia, out: &mut String) {
+        use crate::trivia::Comment;
+        
+        for comment in &trivia.leading {
+            match comment {
+                Comment::Line { text, .. } => {
+                    out.push_str(text);
+                    if !text.ends_with('\n') {
+                        out.push('\n');
+                    }
+                },
+                Comment::Block { text, .. } => {
+                    out.push_str(text);
+                }
+            }
+        }
+    }
+
+    /// Itemからtriviaを取得
+    fn get_item_trivia<'a>(&self, item: &'a Item) -> Option<&'a crate::trivia::Trivia> {
+        match item {
+            Item::Include { trivia, .. } |
+            Item::Define { trivia, .. } |
+            Item::ConditionalBlock { trivia, .. } |
+            Item::TypedefDecl { trivia, .. } |
+            Item::VarDecl { trivia, .. } |
+            Item::StructDecl { trivia, .. } |
+            Item::EnumDecl { trivia, .. } |
+            Item::UnionDecl { trivia, .. } |
+            Item::FunctionDecl { trivia, .. } => Some(trivia),
+        }
+    }
 }
+
 

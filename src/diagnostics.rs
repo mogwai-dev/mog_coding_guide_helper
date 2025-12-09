@@ -55,29 +55,23 @@ pub fn diagnose(tu: &TranslationUnit, config: &DiagnosticConfig) -> Vec<Diagnost
 
 /// ファイルヘッダーコメントの存在をチェック
 fn check_file_header(tu: &TranslationUnit) -> Option<Diagnostic> {
-    // 最初の連続するブロックコメントを結合してチェック
+    use crate::trivia::Comment;
+    
+    // leading_triviaからブロックコメントを結合してチェック
     let mut combined_text = String::new();
-    let mut found_comments = false;
     let mut first_span: Option<Span> = None;
     
-    for item in &tu.items {
-        match item {
-            Item::BlockComment { text, span } => {
-                if first_span.is_none() {
-                    first_span = Some(span.clone());
-                }
-                combined_text.push_str(text);
-                found_comments = true;
-            },
-            _ => {
-                // ブロックコメント以外が出てきたら終了
-                break;
+    for comment in &tu.leading_trivia.leading {
+        if let Comment::Block { text, span } = comment {
+            if first_span.is_none() {
+                first_span = Some(span.clone());
             }
+            combined_text.push_str(text);
         }
     }
     
     // ヘッダーコメントがあるかチェック
-    let has_header = if found_comments {
+    let has_header = if !combined_text.is_empty() {
         let lower_text = combined_text.to_lowercase();
         (lower_text.contains("author") || lower_text.contains("auther")) 
             && lower_text.contains("date") 

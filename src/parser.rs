@@ -2,6 +2,7 @@ use crate::lexer::Lexer;
 use crate::token::*;
 use crate::ast::{TranslationUnit, Item};
 use crate::span::Span;
+use crate::trivia::{Trivia, Comment};
 
 // parse_items の停止理由
 #[derive(Debug, Clone)]
@@ -15,16 +16,23 @@ enum StopReason {
 #[derive(Debug)]
 pub struct Parser<'a> {
     pub lexer: Lexer<'a>,
+    pending_comments: Vec<Comment>,  // 次のItemに付与する予定のコメント
 }
 
 impl<'a> Parser<'a> {
     pub fn new(lexer: Lexer<'a>) -> Self {
-        Parser { lexer }
+        Parser { 
+            lexer,
+            pending_comments: Vec::new(),
+        }
     }
 
     pub fn parse(&mut self) -> TranslationUnit {
         let (items, _) = self.parse_items(false);
-        TranslationUnit { items }
+        TranslationUnit { 
+            items,
+            leading_trivia: Trivia::empty(),  // TODO: 後で実装
+        }
     }
 
     // stop_at_endif: true の場合、#elif/#else/#endif で停止
@@ -36,19 +44,23 @@ impl<'a> Parser<'a> {
             match token {
                 Token::BlockComment(BlockCommentToken { span }) => {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
-                    items.push(Item::BlockComment { span, text });
+                    self.pending_comments.push(Comment::Block { text, span });
+                    continue;
                 },
-                Token::LineComment(_) => {
-                    // 行コメントはスキップ
+                Token::LineComment(LineCommentToken { span }) => {
+                    let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
+                    self.pending_comments.push(Comment::Line { text, span });
                     continue;
                 },
                 Token::Include(IncludeToken { span, filename }) => {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
-                    items.push(Item::Include { span, text, filename });
+                    let trivia = self.take_trivia();
+                    items.push(Item::Include { span, text, filename, trivia });
                 },
                 Token::Define(DefineToken { span, macro_name, macro_value }) => {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
-                    items.push(Item::Define { span, text, macro_name, macro_value });
+                    let trivia = self.take_trivia();
+                    items.push(Item::Define { span, text, macro_name, macro_value, trivia });
                 },
                 // Stage 1: 条件コンパイルブロック
                 Token::Ifdef(IfdefToken { span }) => {
@@ -220,6 +232,7 @@ impl<'a> Parser<'a> {
                         
                         let parameters = self.lexer.input[params_start_byte..params_end_byte].to_string();
                         
+                        let trivia = self.take_trivia();
                         items.push(Item::FunctionDecl {
                             span: final_span,
                             text,
@@ -227,14 +240,17 @@ impl<'a> Parser<'a> {
                             function_name,
                             parameters,
                             storage_class,
+                            trivia,
                         });
                     } else {
                         // 変数宣言
+                        let trivia = self.take_trivia();
                         items.push(Item::VarDecl { 
                             span: final_span, 
                             text,
                             var_name,
                             has_initializer,
+                            trivia,
                         });
                     }
                 },
@@ -291,11 +307,13 @@ impl<'a> Parser<'a> {
                         byte_start_idx: start_byte,
                         byte_end_idx: end_byte,
                     };
+                    let trivia = self.take_trivia();
                     items.push(Item::StructDecl { 
                         span: final_span, 
                         text,
                         struct_name,
                         has_typedef,
+                        trivia,
                     });
                 },
                 Token::Enum(EnumToken { span }) => {
@@ -358,12 +376,14 @@ impl<'a> Parser<'a> {
                         byte_start_idx: start_byte,
                         byte_end_idx: end_byte,
                     };
+                    let trivia = self.take_trivia();
                     items.push(Item::EnumDecl { 
-                        span: final_span, 
+                        span: final_span,
                         text,
                         enum_name,
                         has_typedef,
                         variable_names,
+                        trivia,
                     });
                 },
                 Token::Union(UnionToken { span }) => {
@@ -421,12 +441,14 @@ impl<'a> Parser<'a> {
                         byte_start_idx: start_byte,
                         byte_end_idx: end_byte,
                     };
+                    let trivia = self.take_trivia();
                     items.push(Item::UnionDecl { 
-                        span: final_span, 
+                        span: final_span,
                         text,
                         union_name,
                         has_typedef,
                         variable_names,
+                        trivia,
                     });
                 },
                 Token::Typedef(TypedefToken { span }) => {
@@ -479,11 +501,13 @@ impl<'a> Parser<'a> {
                                 byte_start_idx: start_byte,
                                 byte_end_idx: end_byte,
                             };
+                            let trivia = self.take_trivia();
                             items.push(Item::StructDecl { 
                                 span: final_span, 
                                 text,
                                 struct_name,
                                 has_typedef: true,
+                                trivia,
                             });
                         },
                         Some(Token::Enum(..)) => {
@@ -535,12 +559,14 @@ impl<'a> Parser<'a> {
                                 byte_start_idx: start_byte,
                                 byte_end_idx: end_byte,
                             };
+                            let trivia = self.take_trivia();
                             items.push(Item::EnumDecl { 
-                                span: final_span, 
+                                span: final_span,
                                 text,
                                 enum_name,
                                 has_typedef: true,
                                 variable_names,
+                                trivia,
                             });
                         },
                         Some(Token::Union(..)) => {
@@ -589,12 +615,14 @@ impl<'a> Parser<'a> {
                                 byte_end_idx: end_byte,
                             };
 
-                            items.push(Item::UnionDecl {
+                            let trivia = self.take_trivia();
+                            items.push(Item::UnionDecl { 
                                 span: final_span,
                                 text,
                                 union_name,
                                 has_typedef: true,
                                 variable_names,
+                                trivia,
                             });
                         },
                         _ => {
@@ -619,7 +647,8 @@ impl<'a> Parser<'a> {
                                 byte_start_idx: start_byte,
                                 byte_end_idx: end_byte,
                             };
-                            items.push(Item::TypedefDecl { span: final_span, text });
+                            let trivia = self.take_trivia();
+                            items.push(Item::TypedefDecl { span: final_span, text, trivia });
                         }
                     }
                 },
@@ -661,6 +690,7 @@ impl<'a> Parser<'a> {
                     items: block_items,
                     start_span,
                     end_span,
+                    trivia: Trivia::empty(),
                 };
             },
             StopReason::Else(span) => {
@@ -680,6 +710,7 @@ impl<'a> Parser<'a> {
                     items: else_items,
                     start_span: span.clone(),
                     end_span: end_span.clone(),
+                    trivia: Trivia::empty(),
                 };
                 block_items.push(else_block);
                 
@@ -690,6 +721,7 @@ impl<'a> Parser<'a> {
                     items: Vec::new(),
                     start_span: end_span.clone(),
                     end_span: end_span.clone(),
+                    trivia: Trivia::empty(),
                 });
                 
                 return Item::ConditionalBlock {
@@ -698,6 +730,7 @@ impl<'a> Parser<'a> {
                     items: block_items,
                     start_span,
                     end_span,
+                    trivia: Trivia::empty(),
                 };
             },
             StopReason::Endif(span) => {
@@ -711,6 +744,7 @@ impl<'a> Parser<'a> {
                     items: Vec::new(),
                     start_span: end_span.clone(),
                     end_span: end_span.clone(),
+                    trivia: Trivia::empty(),
                 });
                 
                 return Item::ConditionalBlock {
@@ -719,6 +753,7 @@ impl<'a> Parser<'a> {
                     items: block_items,
                     start_span,
                     end_span,
+                    trivia: Trivia::empty(),
                 };
             },
             StopReason::Eof => {
@@ -729,6 +764,7 @@ impl<'a> Parser<'a> {
                     items: block_items,
                     start_span: start_span.clone(),
                     end_span: start_span,
+                    trivia: Trivia::empty(),
                 };
             }
         }
@@ -750,6 +786,14 @@ impl<'a> Parser<'a> {
             content.strip_prefix("if").unwrap().trim().trim_end_matches(&['\r', '\n'][..]).to_string()
         } else {
             String::new()
+        }
+    }
+    /// pending_commentsを取り出してTriviaを作成
+    fn take_trivia(&mut self) -> Trivia {
+        let leading = std::mem::take(&mut self.pending_comments);
+        Trivia {
+            leading,
+            trailing: Vec::new(),  // TODO: 後で実装
         }
     }
 }
