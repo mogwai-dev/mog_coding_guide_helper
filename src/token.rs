@@ -191,10 +191,16 @@ pub struct EndifToken {
     pub span: Span,
 }
 
+#[derive(Debug)]
+pub struct LineCommentToken {
+    pub span: Span,
+}
+
 // トークンの enum
 #[derive(Debug)]
 pub enum Token<'a> {
     BlockComment(BlockCommentToken),
+    LineComment(LineCommentToken),
     Include(IncludeToken),
     Define(DefineToken),
     Ifdef(IfdefToken),

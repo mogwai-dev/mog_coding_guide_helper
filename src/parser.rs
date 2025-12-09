@@ -38,6 +38,10 @@ impl<'a> Parser<'a> {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
                     items.push(Item::BlockComment { span, text });
                 },
+                Token::LineComment(_) => {
+                    // 行コメントはスキップ
+                    continue;
+                },
                 Token::Include(IncludeToken { span, filename }) => {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
                     items.push(Item::Include { span, text, filename });

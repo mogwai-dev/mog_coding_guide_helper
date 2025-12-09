@@ -7,7 +7,7 @@ fn test_formatter_format_tu_trims_leading_whitespace() {
         let span = Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0, byte_start_idx: 0, byte_end_idx: 0 };
         let item = Item::BlockComment { span, text: String::from("   /* hello */") };
         let tu = TranslationUnit { items: vec![item] };
-        let fmt = Formatter::new();
+        let fmt = Formatter::new_no_header();
         let out = fmt.format_tu(&tu);
         assert_eq!(out, "/* hello */");
     }
@@ -18,7 +18,7 @@ fn test_formatter_format_tu_trims_leading_whitespace() {
         let item1 = Item::BlockComment { span: span.clone(), text: String::from("/* one */") };
         let item2 = Item::BlockComment { span, text: String::from("/* two */") };
         let tu = TranslationUnit { items: vec![item1, item2] };
-        let fmt = Formatter::new();
+        let fmt = Formatter::new_no_header();
         let out = fmt.original_tu(&tu);
         assert_eq!(out, "/* one *//* two */");
     }
@@ -28,7 +28,7 @@ fn test_formatter_format_tu_trims_leading_whitespace() {
         let span = Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0, byte_start_idx: 0, byte_end_idx: 0 };
         let item = Item::BlockComment { span, text: String::from("\t\r\n /* hello */") };
         let tu = TranslationUnit { items: vec![item] };
-        let fmt = Formatter::new();
+        let fmt = Formatter::new_no_header();
         let out = fmt.format_tu(&tu);
         assert_eq!(out, "\n/* hello */");
     }
@@ -38,7 +38,7 @@ fn test_formatter_format_tu_trims_leading_whitespace() {
         let span = Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0, byte_start_idx: 0, byte_end_idx: 0 };
         let item = Item::BlockComment { span, text: String::from("\n\n  /* ok */") };
         let tu = TranslationUnit { items: vec![item] };
-        let fmt = Formatter::new();
+        let fmt = Formatter::new_no_header();
         let out = fmt.format_tu(&tu);
         assert_eq!(out, "\n\n/* ok */");
     }
@@ -49,7 +49,7 @@ fn test_formatter_format_tu_trims_leading_whitespace() {
         let text = String::from("\t\r\n  #define Z 42\n");
         let item = Item::Define { span, text: text.clone(), macro_name: "Z".into(), macro_value: "42".into() };
         let tu = TranslationUnit { items: vec![item] };
-        let fmt = Formatter::new();
+        let fmt = Formatter::new_no_header();
         let out = fmt.format_tu(&tu);
         assert_eq!(out, "\n#define Z 42\n");
     }
@@ -64,7 +64,7 @@ fn test_formatter_format_tu_trims_leading_whitespace() {
             has_initializer: false,
         };
         let tu = TranslationUnit { items: vec![item] };
-        let fmt = Formatter::new();
+        let fmt = Formatter::new_no_header();
         let out = fmt.format_tu(&tu);
         assert_eq!(out, "int x;");
     }
@@ -79,7 +79,7 @@ fn test_formatter_format_tu_trims_leading_whitespace() {
             has_typedef: false,
         };
         let tu = TranslationUnit { items: vec![item] };
-        let fmt = Formatter::new();
+        let fmt = Formatter::new_no_header();
         let out = fmt.format_tu(&tu);
         assert_eq!(out, "struct Point { int x; };");
     }

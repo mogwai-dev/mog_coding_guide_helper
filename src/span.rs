@@ -1,5 +1,5 @@
 // ルートとノードを定義。所有する Span を持たせる（ライフタイム回避のため String/span を所有）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Span {
     pub start_line: usize,
     pub start_column: usize,

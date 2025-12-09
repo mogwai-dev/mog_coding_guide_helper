@@ -304,6 +304,53 @@ impl<'a> Lexer<'a> {
                                 None => return None,
                             }
                         }
+                    } else if let Some((_, '/')) = self.now {
+                        // 行コメントの開始 //
+                        // 2つ目の '/' を消費
+                        self.next_char();
+                        
+                        // 行末まで読む
+                        loop {
+                            match self.now {
+                                Some((byte_idx, '\n')) | Some((byte_idx, '\r')) => {
+                                    // 改行文字の位置を記録
+                                    let end_line = self.line;
+                                    let end_column = self.column;
+                                    let end_byte = byte_idx;
+                                    
+                                    return Some(Token::LineComment(LineCommentToken {
+                                        span: Span {
+                                            start_line,
+                                            start_column,
+                                            end_line,
+                                            end_column,
+                                            byte_start_idx: start_byte_flag.unwrap(),
+                                            byte_end_idx: end_byte,
+                                        }
+                                    }));
+                                }
+                                None => {
+                                    // EOF
+                                    let end_line = self.line;
+                                    let end_column = self.column;
+                                    let end_byte = self.cur;
+                                    
+                                    return Some(Token::LineComment(LineCommentToken {
+                                        span: Span {
+                                            start_line,
+                                            start_column,
+                                            end_line,
+                                            end_column,
+                                            byte_start_idx: start_byte_flag.unwrap(),
+                                            byte_end_idx: end_byte,
+                                        }
+                                    }));
+                                }
+                                Some(_) => {
+                                    self.next_char();
+                                }
+                            }
+                        }
                     } else {
                         // 他のトークン処理へ（ここでは省略）
                         return None

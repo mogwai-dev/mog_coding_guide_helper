@@ -1,6 +1,6 @@
 use std::fs;
 use std::env;
-use coding_guide_helper::{Lexer, Parser, Item};
+use coding_guide_helper::{Lexer, Parser, Formatter, Item, diagnose, DiagnosticConfig, DiagnosticSeverity};
 use coding_guide_helper::token::*;
 
 fn main() {
@@ -13,6 +13,8 @@ fn main() {
     
     lexer_sample(filename);
     parser_sample(filename);
+    diagnostics_sample(filename);
+    formatter_sample(filename);
 }
 
 // lexer_sample() 関数を修正
@@ -25,6 +27,9 @@ fn lexer_sample(filename: &str) {
         match token {
             Token::BlockComment(BlockCommentToken { span }) => {
                 println!("Block comment from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
+            Token::LineComment(LineCommentToken { span }) => {
+                println!("Line comment from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
             Token::Include(IncludeToken { span, filename }) => {
                 println!("Include from ({}, {}) to ({}, {}): {:?} (filename: {})", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx], filename);
@@ -146,5 +151,48 @@ fn print_item(item: &Item, indent: usize) {
                 indent_str, span.start_line, span.start_column, span.end_line, span.end_column, text, union_name, variable_names);
         },
     }
+}
+
+fn diagnostics_sample(filename: &str) {
+    println!("\n[Diagnostics Sample]");
+    let contents = fs::read_to_string(filename).unwrap();
+    let lx = Lexer::new(&contents);
+    let mut parser = Parser::new(lx);
+    let tu = parser.parse();
+    
+    let config = DiagnosticConfig::default();
+    let diagnostics = diagnose(&tu, &config);
+    
+    if diagnostics.is_empty() {
+        println!("No issues found.");
+    } else {
+        for diag in diagnostics {
+            let severity_str = match diag.severity {
+                DiagnosticSeverity::Error => "ERROR",
+                DiagnosticSeverity::Warning => "WARNING",
+                DiagnosticSeverity::Information => "INFO",
+                DiagnosticSeverity::Hint => "HINT",
+            };
+            println!("[{}] {}: {} (line {}, column {})", 
+                diag.code, 
+                severity_str, 
+                diag.message,
+                diag.span.start_line,
+                diag.span.start_column
+            );
+        }
+    }
+}
+
+fn formatter_sample(filename: &str) {
+    println!("\n[Formatter Sample]");
+    let contents = fs::read_to_string(filename).unwrap();
+    let lx = Lexer::new(&contents);
+    let mut parser = Parser::new(lx);
+    let tu = parser.parse();
+    
+    let formatter = Formatter::new();
+    let formatted = formatter.format_tu(&tu);
+    println!("{}", formatted);
 }
 

@@ -1,19 +1,40 @@
 use crate::ast::{TranslationUnit, Item};
 
+const FILE_HEADER_TEMPLATE: &str = "/*****************************/
+/* Author:                   */
+/* Date:                     */
+/* Purpose:                  */
+/*****************************/\n\n";
+
 #[derive(Debug)]
 pub struct Formatter {
-
+    pub add_header: bool,  // ヘッダーコメントを追加するかどうか
 }
 
 impl Formatter {
     pub fn new() -> Self {
         Formatter {
-
+            add_header: true,  // デフォルトはtrue
+        }
+    }
+    
+    pub fn new_no_header() -> Self {
+        Formatter {
+            add_header: false,
         }
     }
 
     pub fn format_tu(&self, tu: &TranslationUnit) -> String {
         let mut s = String::new();
+        
+        // ヘッダーコメントがあるかチェック
+        let has_header = self.has_file_header(tu);
+        
+        // add_headerがtrueかつヘッダーコメントがなければ追加
+        if self.add_header && !has_header {
+            s.push_str(FILE_HEADER_TEMPLATE);
+        }
+        
         for item in &tu.items {
             match item {
                 Item::BlockComment { text, .. } => {
@@ -281,6 +302,36 @@ impl Formatter {
                 text.clone()
             }
         }
+    }
+
+    /// ファイルヘッダーコメントがあるかチェック
+    fn has_file_header(&self, tu: &TranslationUnit) -> bool {
+        // 最初の連続するブロックコメントを結合してチェック
+        let mut combined_text = String::new();
+        let mut found_comments = false;
+        
+        for item in &tu.items {
+            match item {
+                Item::BlockComment { text, .. } => {
+                    combined_text.push_str(text);
+                    found_comments = true;
+                },
+                _ => {
+                    // ブロックコメント以外が出てきたら終了
+                    break;
+                }
+            }
+        }
+        
+        if !found_comments {
+            return false;
+        }
+        
+        // Author/Auther, Date, Purpose のいずれかが含まれていればヘッダーコメントとみなす
+        let lower_text = combined_text.to_lowercase();
+        (lower_text.contains("author") || lower_text.contains("auther")) 
+            && lower_text.contains("date") 
+            && lower_text.contains("purpose")
     }
 }
 
