@@ -1,0 +1,57 @@
+{
+  "name": "coding-guide-helper",
+  "displayName": "Coding Guide Helper",
+  "description": "C language coding guide checker and formatter",
+  "version": "0.1.0",
+  "publisher": "mogwai-dev",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:c"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "c",
+        "extensions": [".c", ".h"]
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Coding Guide Helper",
+      "properties": {
+        "codingGuideHelper.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the coding-guide-helper-lsp executable. If empty, will try to find it automatically."
+        },
+        "codingGuideHelper.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}

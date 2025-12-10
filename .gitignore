@@ -1,1 +1,16 @@
+# Rust
 /target
+Cargo.lock
+
+# VSCode Extension
+editors/vscode/node_modules/
+editors/vscode/out/
+editors/vscode/.vscode-test/
+*.vsix
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
