@@ -1,6 +1,13 @@
-[package]
-name = "coding_guide_helper"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = [
+    "crates/core",
+    "crates/cli",
+]
+resolver = "2"
 
-[dependencies]
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["mogwai-dev"]
+license = "MIT"
+repository = "https://github.com/mogwai-dev/mog_coding_guide_helper"

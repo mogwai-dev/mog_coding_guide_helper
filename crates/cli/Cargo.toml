@@ -1,0 +1,11 @@
+[package]
+name = "coding-guide-helper"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "coding-guide-helper"
+path = "src/main.rs"
+
+[dependencies]
+coding-guide-helper-core = { path = "../core" }

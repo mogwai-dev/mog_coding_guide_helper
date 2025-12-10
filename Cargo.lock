@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
-name = "coding_guide_helper"
+name = "coding-guide-helper"
+version = "0.1.0"
+dependencies = [
+ "coding-guide-helper-core",
+]
+
+[[package]]
+name = "coding-guide-helper-core"
 version = "0.1.0"
