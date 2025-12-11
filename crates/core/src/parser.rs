@@ -11,7 +11,8 @@ enum ParseContext {
     TopLevel,       // トップレベル（ファイル直下）
     InStruct,       // struct 内部
     InUnion,        // union 内部  
-    InEnum,         // enum 内部
+    #[allow(dead_code)]
+    InEnum,         // enum 内部（将来の拡張用に予約）
 }
 
 // parse_items の停止理由
@@ -22,6 +23,7 @@ enum StopReason {
     Endif(Span),
     Eof,
 }
+
 
 #[derive(Debug)]
 pub struct Parser {
