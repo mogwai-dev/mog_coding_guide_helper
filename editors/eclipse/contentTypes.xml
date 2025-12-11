@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<contentTypeMapping>
+  <contentType id="org.eclipse.cdt.core.cSource"/>
+  <contentType id="org.eclipse.cdt.core.cHeader"/>
+  <languageServer
+    id="org.eclipse.coding-guide-helper"
+    name="Coding Guide Helper"
+    class="org.eclipse.lsp4e.server.ProcessStreamConnectionProvider"
+    clientImpl="org.eclipse.lsp4e.client.LanguageClientImpl">
+    <command>
+      <arg>coding-guide-helper-lsp</arg>
+    </command>
+  </languageServer>
+</contentTypeMapping>

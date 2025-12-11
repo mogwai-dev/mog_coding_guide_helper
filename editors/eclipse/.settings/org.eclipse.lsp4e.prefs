@@ -1,0 +1,22 @@
+eclipse.preferences.version=1
+
+# Language Server Configuration
+languageServers=coding-guide-helper
+
+# LSP Server Command (Windows)
+# Uncomment and modify the path for your system
+# coding-guide-helper.command=C\:\\Users\\YourName\\coding_guide_helper\\target\\release\\coding-guide-helper-lsp.exe
+
+# LSP Server Command (Linux/macOS)
+# Uncomment and modify the path for your system
+# coding-guide-helper.command=/home/yourname/coding_guide_helper/target/release/coding-guide-helper-lsp
+
+# Content Types - C Source and Header files
+coding-guide-helper.contentType=org.eclipse.cdt.core.cSource
+coding-guide-helper.contentType.1=org.eclipse.cdt.core.cHeader
+
+# Initialization Options (empty for now)
+coding-guide-helper.initializationOptions={}
+
+# Trace Level (off, messages, verbose)
+coding-guide-helper.trace=off
