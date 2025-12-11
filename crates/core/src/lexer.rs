@@ -3,10 +3,10 @@ use crate::token::*;
 use crate::span::Span;
 
 #[derive(Debug)]
-pub struct Lexer<'a> {
-    pub input: &'a str,
-    char_offsets: CharIndices<'a>, // 文字のバイトオフセットと文字のイテレータ
-    cur: usize,               // 次に読む文字のインデックス (0..=len)
+pub struct Lexer {
+    pub input: String,
+    char_offsets: CharIndices<'static>,
+    cur: usize,
     pub column: usize,
     pub line: usize,
     now: Option<(usize, char)>,
@@ -15,11 +15,18 @@ pub struct Lexer<'a> {
 
 // Lexer の実装
 // 文字列をトークンに分ける
-impl<'a> Lexer<'a> {
-    pub fn new(input: &'a str) -> Self {
+impl Lexer {
+    pub fn new(input: &str) -> Self {
+        let input_string = input.to_string();
+        // SAFETY: Stringを所有しているため'staticライフタイムに変換
+        // Lexerが生きている間は有効
+        let static_str: &'static str = unsafe {
+            std::mem::transmute(input_string.as_str())
+        };
+        
         let mut lx = Lexer {
-            input,
-            char_offsets: input.char_indices(),
+            input: input_string,
+            char_offsets: static_str.char_indices(),
             cur: 0,
             column: 0,
             line: 0,
@@ -32,7 +39,7 @@ impl<'a> Lexer<'a> {
     }
 
     // 記号ではないキーワードはここで処理する
-    fn keyword_to_token(&self, byte_idx_start: usize, byte_idx_end: usize, span: Span) -> Option<Token<'_>> {
+    fn keyword_to_token(&self, byte_idx_start: usize, byte_idx_end: usize, span: Span) -> Option<Token> {
         match &self.input[byte_idx_start..byte_idx_end] {
             "auto" => Some(Token::Auto(AutoToken { span })),
             "register" => Some(Token::Register(RegisterToken { span })),
@@ -57,7 +64,7 @@ impl<'a> Lexer<'a> {
             "union" => Some(Token::Union(UnionToken { span })),
             _ => Some(Token::Ident(IdentToken {
                 span,
-                name: &self.input[byte_idx_start..byte_idx_end],
+                name: self.input[byte_idx_start..byte_idx_end].to_string(),
             })),
         }
     }
@@ -91,7 +98,7 @@ impl<'a> Lexer<'a> {
     }
 
     // トークンを一つ読み取る
-    pub fn next_token(&mut self) -> Option<Token<'_>> {
+    pub fn next_token(&mut self) -> Option<Token> {
         // 初回呼び出し時に now を初期化
         if self.now.is_none() && self.peeked.is_some() {
             self.next_char();
@@ -156,6 +163,32 @@ impl<'a> Lexer<'a> {
                     let end_column = self.column;
 
                     return Some(Token::Equal(EqualToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line,
+                            end_column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, '*')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+
+                    let end_line = self.line;
+                    let end_column = self.column;
+
+                    return Some(Token::Asterisk(AsteriskToken {
                         span: Span {
                             start_line,
                             start_column,

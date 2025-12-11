@@ -1,5 +1,6 @@
 use crate::ast::{TranslationUnit, Item};
 use crate::span::Span;
+use crate::type_system::BaseType;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostic {
@@ -22,6 +23,7 @@ pub struct DiagnosticConfig {
     pub check_file_header: bool,
     pub check_storage_class_order: bool,
     pub check_function_format: bool,
+    pub check_type_safety: bool,
 }
 
 impl Default for DiagnosticConfig {
@@ -30,6 +32,7 @@ impl Default for DiagnosticConfig {
             check_file_header: true,
             check_storage_class_order: true,
             check_function_format: true,
+            check_type_safety: true,
         }
     }
 }
@@ -46,6 +49,10 @@ pub fn diagnose(tu: &TranslationUnit, config: &DiagnosticConfig) -> Vec<Diagnost
     
     if config.check_function_format {
         diagnostics.extend(check_function_format(tu));
+    }
+    
+    if config.check_type_safety {
+        diagnostics.extend(check_type_safety(tu));
     }
     
     // 今後、他のチェックもここに追加
@@ -172,6 +179,76 @@ fn check_function_format(tu: &TranslationUnit) -> Vec<Diagnostic> {
                             function_name
                         ),
                         code: "CGH002".to_string(),
+                    });
+                }
+            }
+        }
+    }
+    
+    diagnostics
+}
+
+/// 型の安全性をチェック
+fn check_type_safety(tu: &TranslationUnit) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    
+    for item in &tu.items {
+        if let Item::VarDecl { span, var_name, var_type, text, .. } = item {
+            if let Some(ty) = var_type {
+                // チェック1: void型の変数宣言（void*は除く）
+                if ty.base_type == BaseType::Void && !ty.is_pointer() {
+                    diagnostics.push(Diagnostic {
+                        span: span.clone(),
+                        severity: DiagnosticSeverity::Error,
+                        message: format!(
+                            "変数 '{}' はvoid型にできません。voidポインタは 'void *' を使用してください。",
+                            var_name
+                        ),
+                        code: "CGH101".to_string(),
+                    });
+                }
+                
+                // チェック2: ポインタのポインタのポインタ（***以上）の使用を警告
+                if ty.pointer_level() >= 3 {
+                    diagnostics.push(Diagnostic {
+                        span: span.clone(),
+                        severity: DiagnosticSeverity::Warning,
+                        message: format!(
+                            "変数 '{}' は{}段階のポインタです。設計を簡素化することを検討してください。",
+                            var_name,
+                            ty.pointer_level()
+                        ),
+                        code: "CGH102".to_string(),
+                    });
+                }
+                
+                // チェック3: 型情報がテキストと一致しているか簡易確認
+                // テキストにアスタリスクがあるのにポインタでない場合を検出
+                let asterisk_count = text.chars().filter(|&c| c == '*').count();
+                if asterisk_count > 0 && !ty.is_pointer() {
+                    diagnostics.push(Diagnostic {
+                        span: span.clone(),
+                        severity: DiagnosticSeverity::Warning,
+                        message: format!(
+                            "変数 '{}' の宣言に '*' が含まれていますが、型情報は非ポインタ型を示しています。型解析が失敗した可能性があります。",
+                            var_name
+                        ),
+                        code: "CGH103".to_string(),
+                    });
+                }
+                
+                // チェック4: テキストのアスタリスク数とポインタレベルの不一致
+                if ty.is_pointer() && asterisk_count > 0 && asterisk_count != ty.pointer_level() {
+                    diagnostics.push(Diagnostic {
+                        span: span.clone(),
+                        severity: DiagnosticSeverity::Information,
+                        message: format!(
+                            "変数 '{}' には{}個のアスタリスクがありますが、{}段階のポインタとして解析されました。複雑なポインタ構文の可能性があります。",
+                            var_name,
+                            asterisk_count,
+                            ty.pointer_level()
+                        ),
+                        code: "CGH104".to_string(),
                     });
                 }
             }

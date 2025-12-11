@@ -3,6 +3,7 @@ use crate::token::*;
 use crate::ast::{TranslationUnit, Item};
 use crate::span::Span;
 use crate::trivia::{Trivia, Comment};
+use crate::type_system::{BaseType, Type, TypeQualifier};
 
 // parse_items の停止理由
 #[derive(Debug, Clone)]
@@ -14,13 +15,13 @@ enum StopReason {
 }
 
 #[derive(Debug)]
-pub struct Parser<'a> {
-    pub lexer: Lexer<'a>,
+pub struct Parser {
+    pub lexer: Lexer,
     pending_comments: Vec<Comment>,  // 次のItemに付与する予定のコメント
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(lexer: Lexer<'a>) -> Self {
+impl Parser {
+    pub fn new(lexer: Lexer) -> Self {
         Parser { 
             lexer,
             pending_comments: Vec::new(),
@@ -244,12 +245,22 @@ impl<'a> Parser<'a> {
                         });
                     } else {
                         // 変数宣言
+                        // 宣言の開始位置から型情報を解析
+                        let var_type = {
+                            // この宣言の開始位置から新しいlexerを作成
+                            let decl_text = self.lexer.input[start_byte..end_byte].trim();
+                            let type_lexer = Lexer::new(decl_text);
+                            let mut type_parser = Parser::new(type_lexer);
+                            type_parser.parse_type()
+                        };
+                        
                         let trivia = self.take_trivia();
                         items.push(Item::VarDecl { 
                             span: final_span, 
                             text,
                             var_name,
                             has_initializer,
+                            var_type,
                             trivia,
                         });
                     }
@@ -795,5 +806,269 @@ impl<'a> Parser<'a> {
             leading,
             trailing: Vec::new(),  // TODO: 後で実装
         }
+    }
+
+    /// Get the span from a token
+    fn get_token_span(token: &Token) -> Span {
+        match token {
+            Token::BlockComment(t) => t.span.clone(),
+            Token::Include(t) => t.span.clone(),
+            Token::Define(t) => t.span.clone(),
+            Token::Semicolon(t) => t.span.clone(),
+            Token::Equal(t) => t.span.clone(),
+            Token::Asterisk(t) => t.span.clone(),
+            Token::Ident(t) => t.span.clone(),
+            Token::Auto(t) => t.span.clone(),
+            Token::Register(t) => t.span.clone(),
+            Token::Static(t) => t.span.clone(),
+            Token::Extern(t) => t.span.clone(),
+            Token::Typedef(t) => t.span.clone(),
+            Token::Const(t) => t.span.clone(),
+            Token::Volatile(t) => t.span.clone(),
+            Token::Restrict(t) => t.span.clone(),
+            Token::Atomic(t) => t.span.clone(),
+            Token::Int(t) => t.span.clone(),
+            Token::Char(t) => t.span.clone(),
+            Token::Float(t) => t.span.clone(),
+            Token::Double(t) => t.span.clone(),
+            Token::Void(t) => t.span.clone(),
+            Token::Long(t) => t.span.clone(),
+            Token::Short(t) => t.span.clone(),
+            Token::Signed(t) => t.span.clone(),
+            Token::Unsigned(t) => t.span.clone(),
+            Token::Struct(t) => t.span.clone(),
+            Token::Enum(t) => t.span.clone(),
+            Token::Union(t) => t.span.clone(),
+            Token::LeftBrace(t) => t.span.clone(),
+            Token::RightBrace(t) => t.span.clone(),
+            Token::LeftParen(t) => t.span.clone(),
+            Token::RightParen(t) => t.span.clone(),
+            Token::Ifdef(t) => t.span.clone(),
+            Token::Ifndef(t) => t.span.clone(),
+            Token::If(t) => t.span.clone(),
+            Token::Elif(t) => t.span.clone(),
+            Token::Else(t) => t.span.clone(),
+            Token::Endif(t) => t.span.clone(),
+            Token::LineComment(t) => t.span.clone(),
+        }
+    }
+
+    /// Parse a C type (base type with optional qualifiers and pointer layers)
+    /// Returns None if the current token doesn't start a type
+    pub fn parse_type(&mut self) -> Option<Type> {
+        let mut base_qualifiers = Vec::new();
+        let base_type: Option<BaseType>;
+        let mut last_span: Option<Span>;
+
+        // Phase 1: Parse base qualifiers and base type
+        loop {
+            let token = self.lexer.next_token()?;
+            let token_span = Self::get_token_span(&token);
+            
+            last_span = Some(token_span.clone());
+
+            match token {
+                // Type qualifiers
+                Token::Const(_) => {
+                    base_qualifiers.push(TypeQualifier::Const);
+                }
+                Token::Volatile(_) => {
+                    base_qualifiers.push(TypeQualifier::Volatile);
+                }
+                Token::Restrict(_) => {
+                    base_qualifiers.push(TypeQualifier::Restrict);
+                }
+                Token::Atomic(_) => {
+                    base_qualifiers.push(TypeQualifier::Atomic);
+                }
+                // Base types
+                Token::Void(_) => {
+                    base_type = Some(BaseType::Void);
+                    break;
+                }
+                Token::Char(_) => {
+                    base_type = Some(BaseType::Char);
+                    break;
+                }
+                Token::Short(_) => {
+                    base_type = Some(BaseType::Short);
+                    break;
+                }
+                Token::Int(_) => {
+                    base_type = Some(BaseType::Int);
+                    break;
+                }
+                Token::Long(_) => {
+                    base_type = Some(BaseType::Long);
+                    break;
+                }
+                Token::Float(_) => {
+                    base_type = Some(BaseType::Float);
+                    break;
+                }
+                Token::Double(_) => {
+                    base_type = Some(BaseType::Double);
+                    break;
+                }
+                Token::Signed(_) => {
+                    base_type = Some(BaseType::Signed);
+                    break;
+                }
+                Token::Unsigned(_) => {
+                    base_type = Some(BaseType::Unsigned);
+                    break;
+                }
+                _ => {
+                    // Not a type token - we're done (or invalid)
+                    return None;
+                }
+            }
+        }
+
+        let base_type = base_type?;
+        let mut end_span = last_span?;
+
+        // フェーズ2: ポインタ層を解析（アスタリスクと修飾子）
+        let mut pointer_layers = Vec::new();
+        
+        'pointer_loop: loop {
+            // Try to get next token - if there's no more tokens, we're done
+            let token = match self.lexer.next_token() {
+                Some(t) => t,
+                None => break,
+            };
+
+            match token {
+                Token::Asterisk(ast_token) => {
+                    let asterisk_span = ast_token.span.clone();
+                    end_span = asterisk_span.clone();
+                    let mut qualifiers = Vec::new();
+
+                    // アスタリスクの後の修飾子をチェック
+                    'qualifier_loop: loop {
+                        let next_token = match self.lexer.next_token() {
+                            Some(t) => t,
+                            None => {
+                                // No more tokens - save this pointer layer and exit
+                                pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
+                                    qualifiers,
+                                    asterisk_span,
+                                ));
+                                break 'pointer_loop;
+                            }
+                        };
+
+                        match next_token {
+                            Token::Const(_) => {
+                                qualifiers.push(TypeQualifier::Const);
+                                end_span = Self::get_token_span(&next_token);
+                            }
+                            Token::Volatile(_) => {
+                                qualifiers.push(TypeQualifier::Volatile);
+                                end_span = Self::get_token_span(&next_token);
+                            }
+                            Token::Restrict(_) => {
+                                qualifiers.push(TypeQualifier::Restrict);
+                                end_span = Self::get_token_span(&next_token);
+                            }
+                            Token::Atomic(_) => {
+                                qualifiers.push(TypeQualifier::Atomic);
+                                end_span = Self::get_token_span(&next_token);
+                            }
+                            Token::Asterisk(next_ast) => {
+                                // Another asterisk - save current layer and continue with outer loop
+                                pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
+                                    qualifiers,
+                                    asterisk_span,
+                                ));
+                                
+                                // Prepare for next asterisk processing
+                                let new_asterisk_span = next_ast.span.clone();
+                                end_span = new_asterisk_span.clone();
+                                let mut new_qualifiers = Vec::new();
+
+                                // Parse qualifiers for this asterisk
+                                loop {
+                                    let qual_token = match self.lexer.next_token() {
+                                        Some(t) => t,
+                                        None => {
+                                            pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
+                                                new_qualifiers,
+                                                new_asterisk_span,
+                                            ));
+                                            break 'pointer_loop;
+                                        }
+                                    };
+
+                                    match qual_token {
+                                        Token::Const(_) => {
+                                            new_qualifiers.push(TypeQualifier::Const);
+                                            end_span = Self::get_token_span(&qual_token);
+                                        }
+                                        Token::Volatile(_) => {
+                                            new_qualifiers.push(TypeQualifier::Volatile);
+                                            end_span = Self::get_token_span(&qual_token);
+                                        }
+                                        Token::Restrict(_) => {
+                                            new_qualifiers.push(TypeQualifier::Restrict);
+                                            end_span = Self::get_token_span(&qual_token);
+                                        }
+                                        Token::Atomic(_) => {
+                                            new_qualifiers.push(TypeQualifier::Atomic);
+                                            end_span = Self::get_token_span(&qual_token);
+                                        }
+                                        Token::Asterisk(third_ast) => {
+                                            // Third asterisk - save current and continue outer loop
+                                            pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
+                                                new_qualifiers,
+                                                new_asterisk_span,
+                                            ));
+                                            
+                                            // Process third asterisk by continuing outer loop
+                                            let third_span = third_ast.span.clone();
+                                            end_span = third_span.clone();
+                                            pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
+                                                Vec::new(),
+                                                third_span,
+                                            ));
+                                            
+                                            // Continue outer loop to process more tokens
+                                            break 'qualifier_loop;
+                                        }
+                                        _ => {
+                                            // Not a qualifier - save this layer and exit
+                                            pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
+                                                new_qualifiers,
+                                                new_asterisk_span,
+                                            ));
+                                            break 'pointer_loop;
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                // Not a qualifier or asterisk - save this layer and exit
+                                pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
+                                    qualifiers,
+                                    asterisk_span,
+                                ));
+                                break 'pointer_loop;
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    // アスタリスクではない - ポインタ層の解析終了
+                    break;
+                }
+            }
+        }
+
+        Some(Type::with_pointers(
+            base_type,
+            base_qualifiers,
+            pointer_layers,
+            end_span,
+        ))
     }
 }

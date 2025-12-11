@@ -1,5 +1,6 @@
 use crate::span::Span;
 use crate::trivia::Trivia;
+use crate::type_system::Type;
 
 #[derive(Debug)]
 pub struct TranslationUnit {
@@ -41,6 +42,7 @@ pub enum Item {
         text: String,
         var_name: String,
         has_initializer: bool,
+        var_type: Option<Type>,
         trivia: Trivia,
     },
     StructDecl {

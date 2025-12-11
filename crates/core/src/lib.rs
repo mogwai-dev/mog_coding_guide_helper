@@ -6,6 +6,7 @@ pub mod ast;
 pub mod formatter;
 pub mod diagnostics;
 pub mod trivia;
+pub mod type_system;
 
 // 主要な型を re-export して使いやすくする
 pub use span::Span;

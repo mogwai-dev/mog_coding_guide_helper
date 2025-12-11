@@ -9,18 +9,35 @@ const FILE_HEADER_TEMPLATE: &str = "/*****************************/
 #[derive(Debug)]
 pub struct Formatter {
     pub add_header: bool,  // ヘッダーコメントを追加するかどうか
+    pub use_type_info: bool,  // 型情報を使用して変数宣言をフォーマットするかどうか
 }
 
 impl Formatter {
     pub fn new() -> Self {
         Formatter {
             add_header: true,  // デフォルトはtrue
+            use_type_info: false,  // デフォルトは既存のテキストを使用
         }
     }
     
     pub fn new_no_header() -> Self {
         Formatter {
             add_header: false,
+            use_type_info: false,
+        }
+    }
+    
+    pub fn new_with_type_info() -> Self {
+        Formatter {
+            add_header: true,
+            use_type_info: true,
+        }
+    }
+    
+    pub fn new_with_options(add_header: bool, use_type_info: bool) -> Self {
+        Formatter {
+            add_header,
+            use_type_info,
         }
     }
 
@@ -112,21 +129,59 @@ impl Formatter {
                     s.push_str(&kept_newlines);
                     s.push_str(&text[first_non_ws..]);
                 },
-                Item::VarDecl { text, .. } => {
-                    // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
-                    let first_non_ws = text
-                        .char_indices()
-                        .find(|&(_, ch)| !ch.is_whitespace())
-                        .map(|(i, _)| i)
-                        .unwrap_or(text.len());
+                Item::VarDecl { text, var_name, var_type, has_initializer, .. } => {
+                    if self.use_type_info && var_type.is_some() {
+                        // 型情報を使用してフォーマット
+                        let ty = var_type.as_ref().unwrap();
+                        let type_str = ty.to_string();
+                        
+                        // 先頭の空白部分から改行だけ取り出して保持する
+                        let first_non_ws = text
+                            .char_indices()
+                            .find(|&(_, ch)| !ch.is_whitespace())
+                            .map(|(i, _)| i)
+                            .unwrap_or(text.len());
+                        let leading = &text[..first_non_ws];
+                        let kept_newlines: String = leading.chars().filter(|&c| c == '\n').collect();
+                        
+                        s.push_str(&kept_newlines);
+                        s.push_str(&type_str);
+                        s.push_str(" ");
+                        s.push_str(var_name);
+                        
+                        // 初期化子がある場合は元のテキストから抽出
+                        if *has_initializer {
+                            // 元のテキストから'='を見つけて、それ以降を含める
+                            if let Some(eq_pos) = text.find('=') {
+                                s.push_str(" ");
+                                s.push_str(&text[eq_pos..].trim_end());
+                            } else {
+                                s.push_str(";");
+                            }
+                        } else {
+                            s.push_str(";");
+                        }
+                        
+                        // 改行が元のテキストの最後になければ追加
+                        if !text.ends_with('\n') && !text.ends_with("\r\n") {
+                            // 何もしない（改行なし）
+                        } else {
+                            s.push('\n');
+                        }
+                    } else {
+                        // 既存の実装: テキストをそのまま使用
+                        let first_non_ws = text
+                            .char_indices()
+                            .find(|&(_, ch)| !ch.is_whitespace())
+                            .map(|(i, _)| i)
+                            .unwrap_or(text.len());
 
-                    // 先頭の空白部分から改行だけ取り出して保持する
-                    let leading = &text[..first_non_ws];
-                    let kept_newlines: String = leading.chars().filter(|&c| c == '\n').collect();
+                        let leading = &text[..first_non_ws];
+                        let kept_newlines: String = leading.chars().filter(|&c| c == '\n').collect();
 
-                    // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
-                    s.push_str(&kept_newlines);
-                    s.push_str(&text[first_non_ws..]);
+                        s.push_str(&kept_newlines);
+                        s.push_str(&text[first_non_ws..]);
+                    }
                 },
                 Item::StructDecl { text, .. } => {
                     // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）

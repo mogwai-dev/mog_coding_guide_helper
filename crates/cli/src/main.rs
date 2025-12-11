@@ -46,6 +46,9 @@ fn lexer_sample(filename: &str) {
             Token::Equal(EqualToken { span }) => {
                 println!("Equal from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
+            Token::Asterisk(AsteriskToken { span }) => {
+                println!("Asterisk from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
             Token::Ident(IdentToken { span, name }) => {
                 println!("Ident from ({}, {}) to ({}, {}): {:?} (name: {})", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx], name);
             },

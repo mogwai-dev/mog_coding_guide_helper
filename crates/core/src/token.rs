@@ -30,9 +30,14 @@ pub struct EqualToken {
 }
 
 #[derive(Debug, Clone)]
-pub struct IdentToken<'a> {
+pub struct AsteriskToken {
     pub span: Span,
-    pub name: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct IdentToken {
+    pub span: Span,
+    pub name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -160,7 +165,7 @@ pub struct RightParenToken {
     pub span: Span,
 }
 
-// Conditional compilation directive tokens
+// 条件コンパイルディレクティブトークン
 #[derive(Debug, Clone)]
 pub struct IfdefToken {
     pub span: Span,
@@ -198,7 +203,7 @@ pub struct LineCommentToken {
 
 // トークンの enum
 #[derive(Debug)]
-pub enum Token<'a> {
+pub enum Token {
     BlockComment(BlockCommentToken),
     LineComment(LineCommentToken),
     Include(IncludeToken),
@@ -211,7 +216,8 @@ pub enum Token<'a> {
     Endif(EndifToken),
     Semicolon(SemicolonToken),
     Equal(EqualToken),
-    Ident(IdentToken<'a>),
+    Asterisk(AsteriskToken),
+    Ident(IdentToken),
     Auto(AutoToken),
     Register(RegisterToken),
     Static(StaticToken),
