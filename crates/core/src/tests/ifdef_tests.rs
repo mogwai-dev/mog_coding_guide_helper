@@ -111,7 +111,7 @@ mod tests {
             }
             
             // elif block
-            if let Item::ConditionalBlock { directive_type, condition, items: elif_items, .. } = &items[1] {
+            if let Item::ConditionalBlock { directive_type, condition:_, items: elif_items, .. } = &items[1] {
                 assert_eq!(directive_type, "elif");
                 // conditionは空になっている（Lexerの実装による）
                 assert_eq!(elif_items.len(), 3); // VarDecl + else block + endif
