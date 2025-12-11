@@ -1,9 +1,18 @@
 use crate::lexer::Lexer;
 use crate::token::*;
-use crate::ast::{TranslationUnit, Item};
+use crate::ast::{TranslationUnit, Item, StructMember, UnionMember, EnumVariant};
 use crate::span::Span;
 use crate::trivia::{Trivia, Comment};
 use crate::type_system::{BaseType, Type, TypeQualifier};
+
+// パース中のコンテキスト
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParseContext {
+    TopLevel,       // トップレベル（ファイル直下）
+    InStruct,       // struct 内部
+    InUnion,        // union 内部  
+    InEnum,         // enum 内部
+}
 
 // parse_items の停止理由
 #[derive(Debug, Clone)]
@@ -29,7 +38,7 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> TranslationUnit {
-        let (items, _) = self.parse_items(false);
+        let (items, _) = self.parse_items(ParseContext::TopLevel, false);
         TranslationUnit { 
             items,
             leading_trivia: Trivia::empty(),  // TODO: 後で実装
@@ -37,11 +46,19 @@ impl Parser {
     }
 
     // stop_at_endif: true の場合、#elif/#else/#endif で停止
+    // context: パース中のコンテキスト（TopLevel/InStruct/InUnion/InEnum）
     // 戻り値: (items, stop_reason)
-    fn parse_items(&mut self, stop_at_endif: bool) -> (Vec<Item>, StopReason) {
+    fn parse_items(&mut self, context: ParseContext, stop_at_endif: bool) -> (Vec<Item>, StopReason) {
         let mut items = Vec::new();
 
         while let Some(token) = self.lexer.next_token() {
+            // struct/union/enum内部でRightBraceを検出したら終了
+            if matches!(context, ParseContext::InStruct | ParseContext::InUnion | ParseContext::InEnum) {
+                if matches!(token, Token::RightBrace(..)) {
+                    return (items, StopReason::Eof);
+                }
+            }
+            
             match token {
                 Token::BlockComment(BlockCommentToken { span }) => {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
@@ -65,15 +82,15 @@ impl Parser {
                 },
                 // Stage 1: 条件コンパイルブロック
                 Token::Ifdef(IfdefToken { span }) => {
-                    let block = self.parse_conditional_block(span, "ifdef");
+                    let block = self.parse_conditional_block(context, span, "ifdef");
                     items.push(block);
                 },
                 Token::Ifndef(IfndefToken { span }) => {
-                    let block = self.parse_conditional_block(span, "ifndef");
+                    let block = self.parse_conditional_block(context, span, "ifndef");
                     items.push(block);
                 },
                 Token::If(IfToken { span }) => {
-                    let block = self.parse_conditional_block(span, "if");
+                    let block = self.parse_conditional_block(context, span, "if");
                     items.push(block);
                 },
                 // Stage 2: #elif, #else, #endif の処理
@@ -272,39 +289,108 @@ impl Parser {
                     let mut end_byte = span.byte_end_idx;
                     let mut struct_name: Option<String> = None;
                     let has_typedef = false;
-                    let mut found_brace = false;
-                    let mut brace_depth = 0;
+                    let mut members = Vec::new();
+                    let mut parsed_successfully = false;
                     
-                    loop {
-                        match self.lexer.next_token() {
-                            Some(Token::Ident(IdentToken { name, .. })) => {
-                                // 構造体名（または変数名）
-                                if struct_name.is_none() && !found_brace {
-                                    struct_name = Some(name.to_string());
+                    // 次のトークンをチェック
+                    let next_token = self.lexer.next_token();
+                    
+                    match next_token {
+                        Some(Token::Ident(IdentToken { name, .. })) => {
+                            struct_name = Some(name.to_string());
+                            
+                            // 構造体名の後をチェック
+                            match self.lexer.next_token() {
+                                Some(Token::LeftBrace(..)) => {
+                                    // struct Name { ... }
+                                    let (inner_items, _) = self.parse_items(ParseContext::InStruct, false);
+                                    
+                                    for item in &inner_items {
+                                        if let Some(member) = Self::vardecl_to_struct_member(item) {
+                                            members.push(member);
+                                        }
+                                    }
+                                    
+                                    // RightBraceの後、セミコロンまで読む
+                                    loop {
+                                        match self.lexer.next_token() {
+                                            Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                                end_byte = semi_span.byte_end_idx;
+                                                break;
+                                            },
+                                            Some(_) => continue,
+                                            None => break,
+                                        }
+                                    }
+                                    parsed_successfully = true;
+                                },
+                                Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                    // 前方宣言: struct Foo;
+                                    end_byte = semi_span.byte_end_idx;
+                                    parsed_successfully = true;
+                                },
+                                _ => {
+                                    // その他は後でスキップ
                                 }
-                            },
-                            Some(Token::LeftBrace(..)) => {
-                                brace_depth += 1;
-                                found_brace = true;
-                            },
-                            Some(Token::RightBrace(..)) => {
-                                brace_depth -= 1;
-                            },
-                            Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
-                                end_byte = semi_span.byte_end_idx;
-                                if brace_depth == 0 {
-                                    break;
+                            }
+                        },
+                        Some(Token::LeftBrace(..)) => {
+                            // 匿名struct: struct { ... } var;
+                            // 従来通りスキップ（parse_itemsは呼ばない）
+                            let mut brace_depth = 1;
+                            loop {
+                                match self.lexer.next_token() {
+                                    Some(Token::LeftBrace(..)) => brace_depth += 1,
+                                    Some(Token::RightBrace(..)) => {
+                                        brace_depth -= 1;
+                                        if brace_depth == 0 { break; }
+                                    },
+                                    None => break,
+                                    _ => continue,
                                 }
-                            },
-                            Some(Token::Struct(..)) => {
-                                // 内部のstructキーワードはスキップ
-                                continue;
-                            },
-                            Some(_) => {
-                                continue;
-                            },
-                            None => {
-                                break;
+                            }
+                            // }の後、変数名とセミコロンを読む
+                            loop {
+                                match self.lexer.next_token() {
+                                    Some(Token::Ident(IdentToken { name, .. })) => {
+                                        struct_name = Some(name.to_string());
+                                    },
+                                    Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                        end_byte = semi_span.byte_end_idx;
+                                        break;
+                                    },
+                                    None => break,
+                                    _ => continue,
+                                }
+                            }
+                            parsed_successfully = true;
+                        },
+                        Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                            // struct; (エラーだが無視)
+                            end_byte = semi_span.byte_end_idx;
+                            parsed_successfully = true;
+                        },
+                        _ => {
+                            // その他は後でスキップ
+                        }
+                    }
+                    
+                    // parsed_successfully=falseの場合は従来のスキップロジック
+                    if !parsed_successfully {
+                        let mut brace_depth = 0;
+                        loop {
+                            match self.lexer.next_token() {
+                                Some(Token::LeftBrace(..)) => brace_depth += 1,
+                                Some(Token::RightBrace(..)) => {
+                                    brace_depth -= 1;
+                                    if brace_depth < 0 { break; }
+                                },
+                                Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                    end_byte = semi_span.byte_end_idx;
+                                    if brace_depth == 0 { break; }
+                                },
+                                None => break,
+                                _ => continue,
                             }
                         }
                     }
@@ -324,6 +410,7 @@ impl Parser {
                         text,
                         struct_name,
                         has_typedef,
+                        members,
                         trivia,
                     });
                 },
@@ -334,46 +421,170 @@ impl Parser {
                     let mut end_byte = span.byte_end_idx;
                     let mut enum_name: Option<String> = None;
                     let has_typedef = false;
-                    let mut found_brace = false;
-                    let mut brace_depth = 0;
                     let mut variable_names = Vec::new();
-                    let mut after_brace_idents = Vec::new();
+                    let mut variants = Vec::new();
+                    let mut parsed_successfully = false;
                     
-                    loop {
-                        match self.lexer.next_token() {
-                            Some(Token::Ident(IdentToken { name, .. })) => {
-                                if enum_name.is_none() && !found_brace {
-                                    // enum名
-                                    enum_name = Some(name.to_string());
-                                } else if brace_depth == 0 && found_brace {
-                                    // } の後の識別子は変数名
-                                    after_brace_idents.push(name.to_string());
+                    // 次のトークンをチェック
+                    let next_token = self.lexer.next_token();
+                    
+                    match next_token {
+                        Some(Token::Ident(IdentToken { name, .. })) => {
+                            enum_name = Some(name.to_string());
+                            
+                            // enum名の後をチェック
+                            match self.lexer.next_token() {
+                                Some(Token::LeftBrace(..)) => {
+                                    // enum Name { ... }
+                                    // enum内部は列挙子（カンマ区切り）
+                                    let mut current_name: Option<String> = None;
+                                    let mut current_value: Option<i64> = None;
+                                    let mut variant_start_line = self.lexer.line;
+                                    let mut variant_start_col = self.lexer.column;
+                                    let mut expect_value = false;  // = の直後かどうか
+                                    
+                                    loop {
+                                        match self.lexer.next_token() {
+                                            Some(Token::Ident(IdentToken { name, span: id_span })) => {
+                                                if expect_value {
+                                                    // = の後の数値
+                                                    if let Ok(val) = name.parse::<i64>() {
+                                                        current_value = Some(val);
+                                                    }
+                                                    expect_value = false;
+                                                } else if name == "=" {
+                                                    // 次に数値が来る
+                                                    expect_value = true;
+                                                } else if name == "," {
+                                                    // 前の列挙子を保存してリセット
+                                                    if let Some(prev_name) = current_name.take() {
+                                                        variants.push(EnumVariant {
+                                                            name: prev_name,
+                                                            value: current_value.take(),
+                                                            span: Span::new(variant_start_line, variant_start_col, id_span.start_line, id_span.start_column),
+                                                        });
+                                                    }
+                                                    variant_start_line = self.lexer.line;
+                                                    variant_start_col = self.lexer.column;
+                                                    current_value = None;
+                                                } else {
+                                                    // 列挙子名
+                                                    if let Some(prev_name) = current_name.take() {
+                                                        // 前の列挙子を保存
+                                                        variants.push(EnumVariant {
+                                                            name: prev_name,
+                                                            value: current_value.take(),
+                                                            span: Span::new(variant_start_line, variant_start_col, id_span.start_line, id_span.start_column),
+                                                        });
+                                                    }
+                                                    current_name = Some(name.to_string());
+                                                    variant_start_line = id_span.start_line;
+                                                    variant_start_col = id_span.start_column;
+                                                }
+                                            },
+                                            Some(Token::RightBrace(..)) => {
+                                                // 最後の列挙子を保存
+                                                if let Some(name) = current_name.take() {
+                                                    variants.push(EnumVariant {
+                                                        name,
+                                                        value: current_value.take(),
+                                                        span: Span::new(variant_start_line, variant_start_col, self.lexer.line, self.lexer.column),
+                                                    });
+                                                }
+                                                break;
+                                            },
+                                            None => break,
+                                            _ => continue,
+                                        }
+                                    }
+                                    
+                                    // }の後、変数名とセミコロンを読む
+                                    loop {
+                                        match self.lexer.next_token() {
+                                            Some(Token::Ident(IdentToken { name, .. })) => {
+                                                variable_names.push(name.to_string());
+                                            },
+                                            Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                                end_byte = semi_span.byte_end_idx;
+                                                break;
+                                            },
+                                            None => break,
+                                            _ => continue,
+                                        }
+                                    }
+                                    parsed_successfully = true;
+                                },
+                                Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                    // 前方宣言: enum Foo;
+                                    end_byte = semi_span.byte_end_idx;
+                                    parsed_successfully = true;
+                                },
+                                _ => {}
+                            }
+                        },
+                        Some(Token::LeftBrace(..)) => {
+                            // 匿名enum（従来通りスキップ）
+                            let mut brace_depth = 1;
+                            loop {
+                                match self.lexer.next_token() {
+                                    Some(Token::LeftBrace(..)) => brace_depth += 1,
+                                    Some(Token::RightBrace(..)) => {
+                                        brace_depth -= 1;
+                                        if brace_depth == 0 { break; }
+                                    },
+                                    None => break,
+                                    _ => continue,
                                 }
-                            },
-                            Some(Token::LeftBrace(..)) => {
-                                brace_depth += 1;
-                                found_brace = true;
-                            },
-                            Some(Token::RightBrace(..)) => {
-                                brace_depth -= 1;
-                            },
-                            Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
-                                end_byte = semi_span.byte_end_idx;
-                                if brace_depth == 0 {
-                                    // セミコロンの前の識別子が変数名
-                                    variable_names = after_brace_idents;
-                                    break;
+                            }
+                            loop {
+                                match self.lexer.next_token() {
+                                    Some(Token::Ident(IdentToken { name, .. })) => {
+                                        variable_names.push(name.to_string());
+                                    },
+                                    Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                        end_byte = semi_span.byte_end_idx;
+                                        break;
+                                    },
+                                    None => break,
+                                    _ => continue,
                                 }
-                            },
-                            Some(Token::Enum(..)) => {
-                                // 内部のenumキーワードはスキップ
-                                continue;
-                            },
-                            Some(_) => {
-                                continue;
-                            },
-                            None => {
-                                break;
+                            }
+                            parsed_successfully = true;
+                        },
+                        _ => {}
+                    }
+                    
+                    // 従来のスキップロジック
+                    if !parsed_successfully {
+                        let mut brace_depth = 0;
+                        let mut found_brace = false;
+                        let mut after_brace_idents = Vec::new();
+                        
+                        loop {
+                            match self.lexer.next_token() {
+                                Some(Token::Ident(IdentToken { name, .. })) => {
+                                    if enum_name.is_none() && !found_brace {
+                                        enum_name = Some(name.to_string());
+                                    } else if brace_depth == 0 && found_brace {
+                                        after_brace_idents.push(name.to_string());
+                                    }
+                                },
+                                Some(Token::LeftBrace(..)) => {
+                                    brace_depth += 1;
+                                    found_brace = true;
+                                },
+                                Some(Token::RightBrace(..)) => {
+                                    brace_depth -= 1;
+                                },
+                                Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                    end_byte = semi_span.byte_end_idx;
+                                    if brace_depth == 0 {
+                                        variable_names = after_brace_idents;
+                                        break;
+                                    }
+                                },
+                                None => break,
+                                _ => continue,
                             }
                         }
                     }
@@ -394,51 +605,127 @@ impl Parser {
                         enum_name,
                         has_typedef,
                         variable_names,
+                        variants,
                         trivia,
                     });
                 },
                 Token::Union(UnionToken { span }) => {
+                    // union 宣言
+                    
                     let start_byte = span.byte_start_idx;
                     let mut end_byte = span.byte_end_idx;
                     let mut union_name: Option<String> = None;
-                    let mut brace_depth = 0;
-                    let mut found_brace = false;
                     let has_typedef = false;
                     let mut variable_names = Vec::new();
-                    let mut after_brace_idents = Vec::new();
-
-                    loop {
-                        match self.lexer.next_token() {
-                            Some(Token::Ident(IdentToken { name, .. })) => {
-                                if brace_depth == 0 && !found_brace {
-                                    union_name = Some(name.to_string());
-                                } else if brace_depth == 0 && found_brace {
-                                    after_brace_idents.push(name.to_string());
+                    let mut members = Vec::new();
+                    let mut parsed_successfully = false;
+                    
+                    // 次のトークンをチェック
+                    let next_token = self.lexer.next_token();
+                    
+                    match next_token {
+                        Some(Token::Ident(IdentToken { name, .. })) => {
+                            union_name = Some(name.to_string());
+                            
+                            // union名の後をチェック
+                            match self.lexer.next_token() {
+                                Some(Token::LeftBrace(..)) => {
+                                    // union Name { ... }
+                                    let (inner_items, _) = self.parse_items(ParseContext::InUnion, false);
+                                    
+                                    for item in &inner_items {
+                                        if let Some(member) = Self::vardecl_to_union_member(item) {
+                                            members.push(member);
+                                        }
+                                    }
+                                    
+                                    // RightBraceの後、セミコロンまで読む
+                                    loop {
+                                        match self.lexer.next_token() {
+                                            Some(Token::Ident(IdentToken { name, .. })) => {
+                                                variable_names.push(name.to_string());
+                                            },
+                                            Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                                end_byte = semi_span.byte_end_idx;
+                                                break;
+                                            },
+                                            Some(_) => continue,
+                                            None => break,
+                                        }
+                                    }
+                                    parsed_successfully = true;
+                                },
+                                Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                    // 前方宣言: union Foo;
+                                    end_byte = semi_span.byte_end_idx;
+                                    parsed_successfully = true;
+                                },
+                                _ => {}
+                            }
+                        },
+                        Some(Token::LeftBrace(..)) => {
+                            // 匿名union（従来通りスキップ）
+                            let mut brace_depth = 1;
+                            loop {
+                                match self.lexer.next_token() {
+                                    Some(Token::LeftBrace(..)) => brace_depth += 1,
+                                    Some(Token::RightBrace(..)) => {
+                                        brace_depth -= 1;
+                                        if brace_depth == 0 { break; }
+                                    },
+                                    None => break,
+                                    _ => continue,
                                 }
-                            },
-                            Some(Token::LeftBrace(..)) => {
-                                brace_depth += 1;
-                                found_brace = true;
-                            },
-                            Some(Token::RightBrace(..)) => {
-                                brace_depth -= 1;
-                            },
-                            Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
-                                end_byte = semi_span.byte_end_idx;
-                                if brace_depth == 0 {
-                                    variable_names = after_brace_idents;
-                                    break;
+                            }
+                            loop {
+                                match self.lexer.next_token() {
+                                    Some(Token::Ident(IdentToken { name, .. })) => {
+                                        variable_names.push(name.to_string());
+                                    },
+                                    Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                        end_byte = semi_span.byte_end_idx;
+                                        break;
+                                    },
+                                    None => break,
+                                    _ => continue,
                                 }
-                            },
-                            Some(Token::Union(..)) => {
-                                // 内部のunionキーワードはスキップ
-                                continue;
-                            },
-                            Some(_) => {
-                                continue;
-                            },
-                            None => {
-                                break;
+                            }
+                            parsed_successfully = true;
+                        },
+                        _ => {}
+                    }
+                    
+                    // 従来のスキップロジック
+                    if !parsed_successfully {
+                        let mut brace_depth = 0;
+                        let mut found_brace = false;
+                        let mut after_brace_idents = Vec::new();
+                        
+                        loop {
+                            match self.lexer.next_token() {
+                                Some(Token::Ident(IdentToken { name, .. })) => {
+                                    if brace_depth == 0 && !found_brace {
+                                        union_name = Some(name.to_string());
+                                    } else if brace_depth == 0 && found_brace {
+                                        after_brace_idents.push(name.to_string());
+                                    }
+                                },
+                                Some(Token::LeftBrace(..)) => {
+                                    brace_depth += 1;
+                                    found_brace = true;
+                                },
+                                Some(Token::RightBrace(..)) => {
+                                    brace_depth -= 1;
+                                },
+                                Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                    end_byte = semi_span.byte_end_idx;
+                                    if brace_depth == 0 {
+                                        variable_names = after_brace_idents;
+                                        break;
+                                    }
+                                },
+                                None => break,
+                                _ => continue,
                             }
                         }
                     }
@@ -459,6 +746,7 @@ impl Parser {
                         union_name,
                         has_typedef,
                         variable_names,
+                        members,
                         trivia,
                     });
                 },
@@ -518,6 +806,7 @@ impl Parser {
                                 text,
                                 struct_name,
                                 has_typedef: true,
+                                members: Vec::new(),  // TODO: 後で実装
                                 trivia,
                             });
                         },
@@ -577,6 +866,7 @@ impl Parser {
                                 enum_name,
                                 has_typedef: true,
                                 variable_names,
+                                variants: Vec::new(),  // TODO: 後で実装
                                 trivia,
                             });
                         },
@@ -633,6 +923,7 @@ impl Parser {
                                 union_name,
                                 has_typedef: true,
                                 variable_names,
+                                members: Vec::new(),  // TODO: 後で実装
                                 trivia,
                             });
                         },
@@ -674,17 +965,17 @@ impl Parser {
 
     // Stage 2: 条件コンパイルブロックを解析（#ifdef から #endif まで）
     // #elif/#else も子ブロックとして扱う
-    fn parse_conditional_block(&mut self, start_span: Span, directive_type: &str) -> Item {
+    fn parse_conditional_block(&mut self, context: ParseContext, start_span: Span, directive_type: &str) -> Item {
         let condition = self.extract_condition(&start_span);
         
         // このブロック（#ifdef/#ifndef/#if）内のアイテムを解析
-        let (mut block_items, stop_reason) = self.parse_items(true);
+        let (mut block_items, stop_reason) = self.parse_items(context, true);
         
         // parse_items が終了した理由を確認（#elif, #else, #endif のいずれか、またはEOF）
         match stop_reason {
             StopReason::Elif(span) => {
                 // #elif ブロックを子アイテムとして追加し、再帰的に処理
-                let elif_block = self.parse_conditional_block(span, "elif");
+                let elif_block = self.parse_conditional_block(context, span, "elif");
                 
                 // end_span は #elif ブロックの end_span を使う
                 let end_span = if let Item::ConditionalBlock { end_span, .. } = &elif_block {
@@ -706,7 +997,7 @@ impl Parser {
             },
             StopReason::Else(span) => {
                 // #else ブロックを子アイテムとして追加
-                let (else_items, end_reason) = self.parse_items(true);
+                let (else_items, end_reason) = self.parse_items(context, true);
                 
                 // #else の後は必ず #endif が来るはず
                 let end_span = if let StopReason::Endif(span) = end_reason {
@@ -805,6 +1096,33 @@ impl Parser {
         Trivia {
             leading,
             trailing: Vec::new(),  // TODO: 後で実装
+        }
+    }
+
+    /// VarDeclをStructMemberに変換
+    fn vardecl_to_struct_member(item: &Item) -> Option<StructMember> {
+        if let Item::VarDecl { var_name, var_type, span, .. } = item {
+            Some(StructMember {
+                name: var_name.clone(),
+                member_type: var_type.clone(),
+                bitfield_width: None,  // TODO: ビットフィールド解析
+                span: span.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// VarDeclをUnionMemberに変換
+    fn vardecl_to_union_member(item: &Item) -> Option<UnionMember> {
+        if let Item::VarDecl { var_name, var_type, span, .. } = item {
+            Some(UnionMember {
+                name: var_name.clone(),
+                member_type: var_type.clone(),
+                span: span.clone(),
+            })
+        } else {
+            None
         }
     }
 
