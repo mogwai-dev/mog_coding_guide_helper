@@ -153,6 +153,26 @@ impl Lexer {
                     }
                     self.next_char();
 
+                    // Check for ==
+                    if let Some((_, '=')) = self.now {
+                        self.next_char();
+                        let end_byte = if let Some((b, _)) = self.peeked {
+                            b
+                        } else {
+                            self.input.len()
+                        };
+                        return Some(Token::EqualEqual(EqualEqualToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line: self.line,
+                                end_column: self.column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte,
+                            }
+                        }));
+                    }
+
                     let end_byte = if let Some((b, _)) = self.peeked {
                         b
                     } else {
@@ -194,6 +214,561 @@ impl Lexer {
                             start_column,
                             end_line,
                             end_column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, '+')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    // Check for ++
+                    if let Some((_, '+')) = self.now {
+                        self.next_char();
+                        let end_byte = if let Some((b, _)) = self.peeked {
+                            b
+                        } else {
+                            self.input.len()
+                        };
+                        return Some(Token::PlusPlus(PlusPlusToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line: self.line,
+                                end_column: self.column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte,
+                            }
+                        }));
+                    }
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::Plus(PlusToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, '-')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    // Check for -- or ->
+                    match self.now {
+                        Some((_, '-')) => {
+                            self.next_char();
+                            let end_byte = if let Some((b, _)) = self.peeked {
+                                b
+                            } else {
+                                self.input.len()
+                            };
+                            return Some(Token::MinusMinus(MinusMinusToken {
+                                span: Span {
+                                    start_line,
+                                    start_column,
+                                    end_line: self.line,
+                                    end_column: self.column,
+                                    byte_start_idx: start_byte_flag.unwrap(),
+                                    byte_end_idx: end_byte,
+                                }
+                            }));
+                        },
+                        Some((_, '>')) => {
+                            self.next_char();
+                            let end_byte = if let Some((b, _)) = self.peeked {
+                                b
+                            } else {
+                                self.input.len()
+                            };
+                            return Some(Token::Arrow(ArrowToken {
+                                span: Span {
+                                    start_line,
+                                    start_column,
+                                    end_line: self.line,
+                                    end_column: self.column,
+                                    byte_start_idx: start_byte_flag.unwrap(),
+                                    byte_end_idx: end_byte,
+                                }
+                            }));
+                        },
+                        _ => {
+                            let end_byte = if let Some((b, _)) = self.peeked {
+                                b
+                            } else {
+                                self.input.len()
+                            };
+                            return Some(Token::Minus(MinusToken {
+                                span: Span {
+                                    start_line,
+                                    start_column,
+                                    end_line: self.line,
+                                    end_column: self.column,
+                                    byte_start_idx: start_byte_flag.unwrap(),
+                                    byte_end_idx: end_byte,
+                                }
+                            }));
+                        }
+                    }
+                },
+                Some((byte_idx, '%')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::Percent(PercentToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, '!')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    // Check for !=
+                    if let Some((_, '=')) = self.now {
+                        self.next_char();
+                        let end_byte = if let Some((b, _)) = self.peeked {
+                            b
+                        } else {
+                            self.input.len()
+                        };
+                        return Some(Token::NotEqual(NotEqualToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line: self.line,
+                                end_column: self.column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte,
+                            }
+                        }));
+                    }
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::Exclamation(ExclamationToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, '<')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    // Check for <= or <<
+                    match self.now {
+                        Some((_, '=')) => {
+                            self.next_char();
+                            let end_byte = if let Some((b, _)) = self.peeked {
+                                b
+                            } else {
+                                self.input.len()
+                            };
+                            return Some(Token::LessThanOrEqual(LessThanOrEqualToken {
+                                span: Span {
+                                    start_line,
+                                    start_column,
+                                    end_line: self.line,
+                                    end_column: self.column,
+                                    byte_start_idx: start_byte_flag.unwrap(),
+                                    byte_end_idx: end_byte,
+                                }
+                            }));
+                        },
+                        Some((_, '<')) => {
+                            self.next_char();
+                            let end_byte = if let Some((b, _)) = self.peeked {
+                                b
+                            } else {
+                                self.input.len()
+                            };
+                            return Some(Token::LeftShift(LeftShiftToken {
+                                span: Span {
+                                    start_line,
+                                    start_column,
+                                    end_line: self.line,
+                                    end_column: self.column,
+                                    byte_start_idx: start_byte_flag.unwrap(),
+                                    byte_end_idx: end_byte,
+                                }
+                            }));
+                        },
+                        _ => {
+                            let end_byte = if let Some((b, _)) = self.peeked {
+                                b
+                            } else {
+                                self.input.len()
+                            };
+                            return Some(Token::LessThan(LessThanToken {
+                                span: Span {
+                                    start_line,
+                                    start_column,
+                                    end_line: self.line,
+                                    end_column: self.column,
+                                    byte_start_idx: start_byte_flag.unwrap(),
+                                    byte_end_idx: end_byte,
+                                }
+                            }));
+                        }
+                    }
+                },
+                Some((byte_idx, '>')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    // Check for >= or >>
+                    match self.now {
+                        Some((_, '=')) => {
+                            self.next_char();
+                            let end_byte = if let Some((b, _)) = self.peeked {
+                                b
+                            } else {
+                                self.input.len()
+                            };
+                            return Some(Token::GreaterThanOrEqual(GreaterThanOrEqualToken {
+                                span: Span {
+                                    start_line,
+                                    start_column,
+                                    end_line: self.line,
+                                    end_column: self.column,
+                                    byte_start_idx: start_byte_flag.unwrap(),
+                                    byte_end_idx: end_byte,
+                                }
+                            }));
+                        },
+                        Some((_, '>')) => {
+                            self.next_char();
+                            let end_byte = if let Some((b, _)) = self.peeked {
+                                b
+                            } else {
+                                self.input.len()
+                            };
+                            return Some(Token::RightShift(RightShiftToken {
+                                span: Span {
+                                    start_line,
+                                    start_column,
+                                    end_line: self.line,
+                                    end_column: self.column,
+                                    byte_start_idx: start_byte_flag.unwrap(),
+                                    byte_end_idx: end_byte,
+                                }
+                            }));
+                        },
+                        _ => {
+                            let end_byte = if let Some((b, _)) = self.peeked {
+                                b
+                            } else {
+                                self.input.len()
+                            };
+                            return Some(Token::GreaterThan(GreaterThanToken {
+                                span: Span {
+                                    start_line,
+                                    start_column,
+                                    end_line: self.line,
+                                    end_column: self.column,
+                                    byte_start_idx: start_byte_flag.unwrap(),
+                                    byte_end_idx: end_byte,
+                                }
+                            }));
+                        }
+                    }
+                },
+                Some((byte_idx, '&')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    // Check for &&
+                    if let Some((_, '&')) = self.now {
+                        self.next_char();
+                        let end_byte = if let Some((b, _)) = self.peeked {
+                            b
+                        } else {
+                            self.input.len()
+                        };
+                        return Some(Token::AmpersandAmpersand(AmpersandAmpersandToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line: self.line,
+                                end_column: self.column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte,
+                            }
+                        }));
+                    }
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::Ampersand(AmpersandToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, '|')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    // Check for ||
+                    if let Some((_, '|')) = self.now {
+                        self.next_char();
+                        let end_byte = if let Some((b, _)) = self.peeked {
+                            b
+                        } else {
+                            self.input.len()
+                        };
+                        return Some(Token::PipePipe(PipePipeToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line: self.line,
+                                end_column: self.column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte,
+                            }
+                        }));
+                    }
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::Pipe(PipeToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, '^')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::Caret(CaretToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, '~')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::Tilde(TildeToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, '?')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::Question(QuestionToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, ':')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::Colon(ColonToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, ',')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::Comma(CommaToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, '.')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::Dot(DotToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, '[')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::LeftBracket(LeftBracketToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        }
+                    }));
+                },
+                Some((byte_idx, ']')) => {
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+                    return Some(Token::RightBracket(RightBracketToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
                             byte_start_idx: start_byte_flag.unwrap(),
                             byte_end_idx: end_byte,
                         }
@@ -385,8 +960,22 @@ impl Lexer {
                             }
                         }
                     } else {
-                        // 他のトークン処理へ（ここでは省略）
-                        return None
+                        // '/' 単独のトークン
+                        let end_byte = if let Some((b, _)) = self.peeked {
+                            b
+                        } else {
+                            self.input.len()
+                        };
+                        return Some(Token::Slash(SlashToken {
+                            span: Span {
+                                start_line,
+                                start_column,
+                                end_line: self.line,
+                                end_column: self.column,
+                                byte_start_idx: start_byte_flag.unwrap(),
+                                byte_end_idx: end_byte,
+                            }
+                        }));
                     }
                 },
                 Some((byte_idx, '#')) => {

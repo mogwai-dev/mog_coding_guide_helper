@@ -99,6 +99,21 @@ fn lexer_sample(filename: &str) {
             Token::Elif(ElifToken { span }) | Token::Else(ElseToken { span }) | Token::Endif(EndifToken { span }) => {
                 println!("Conditional directive from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
+            // 演算子トークン
+            Token::Plus(PlusToken { span }) | Token::Minus(MinusToken { span }) | Token::Slash(SlashToken { span }) |
+            Token::Percent(PercentToken { span }) | Token::EqualEqual(EqualEqualToken { span }) | Token::NotEqual(NotEqualToken { span }) |
+            Token::LessThan(LessThanToken { span }) | Token::LessThanOrEqual(LessThanOrEqualToken { span }) |
+            Token::GreaterThan(GreaterThanToken { span }) | Token::GreaterThanOrEqual(GreaterThanOrEqualToken { span }) |
+            Token::Ampersand(AmpersandToken { span }) | Token::AmpersandAmpersand(AmpersandAmpersandToken { span }) |
+            Token::Pipe(PipeToken { span }) | Token::PipePipe(PipePipeToken { span }) | Token::Caret(CaretToken { span }) |
+            Token::Tilde(TildeToken { span }) | Token::Exclamation(ExclamationToken { span }) |
+            Token::LeftShift(LeftShiftToken { span }) | Token::RightShift(RightShiftToken { span }) |
+            Token::LeftBracket(LeftBracketToken { span }) | Token::RightBracket(RightBracketToken { span }) |
+            Token::Question(QuestionToken { span }) | Token::Colon(ColonToken { span }) | Token::Comma(CommaToken { span }) |
+            Token::Dot(DotToken { span }) | Token::Arrow(ArrowToken { span }) |
+            Token::PlusPlus(PlusPlusToken { span }) | Token::MinusMinus(MinusMinusToken { span }) => {
+                println!("Operator from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
         }
     }
 }

@@ -23,7 +23,13 @@ pub enum BaseType {
     Signed,
     Unsigned,
     Bool,
-    // 複合型は後で追加可能 (struct, union, enum, typedef)
+    /// 構造体型（名前付きまたは匿名）
+    /// Option<String>: Some(name) for named struct, None for anonymous
+    Struct(Option<String>),
+    /// 共用体型（名前付きまたは匿名）
+    Union(Option<String>),
+    /// 列挙型（名前付きまたは匿名）
+    Enum(Option<String>),
 }
 
 impl BaseType {
@@ -42,6 +48,12 @@ impl BaseType {
             BaseType::Signed => "signed",
             BaseType::Unsigned => "unsigned",
             BaseType::Bool => "_Bool",
+            BaseType::Struct(Some(name)) => return Box::leak(format!("struct {}", name).into_boxed_str()),
+            BaseType::Struct(None) => "struct",
+            BaseType::Union(Some(name)) => return Box::leak(format!("union {}", name).into_boxed_str()),
+            BaseType::Union(None) => "union",
+            BaseType::Enum(Some(name)) => return Box::leak(format!("enum {}", name).into_boxed_str()),
+            BaseType::Enum(None) => "enum",
         }
     }
 }

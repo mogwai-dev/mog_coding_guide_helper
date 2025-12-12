@@ -4,6 +4,7 @@ use crate::ast::{TranslationUnit, Item, StructMember, UnionMember, EnumVariant};
 use crate::span::Span;
 use crate::trivia::{Trivia, Comment};
 use crate::type_system::{BaseType, Type, TypeQualifier};
+use crate::type_table::TypeTable;
 
 // パース中のコンテキスト
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +30,7 @@ enum StopReason {
 pub struct Parser {
     pub lexer: Lexer,
     pending_comments: Vec<Comment>,  // 次のItemに付与する予定のコメント
+    type_table: TypeTable,           // typedef名を管理
 }
 
 impl Parser {
@@ -36,6 +38,7 @@ impl Parser {
         Parser { 
             lexer,
             pending_comments: Vec::new(),
+            type_table: TypeTable::new(),
         }
     }
 
@@ -778,7 +781,8 @@ impl Parser {
                     let mut end_byte = span.byte_end_idx;
                     
                     // 次のトークンが struct、enum、または union かチェック
-                    match self.lexer.next_token() {
+                    let next_tok = self.lexer.next_token();
+                    match next_tok {
                         Some(Token::Struct(..)) => {
                             // typedef struct の処理
                             let mut struct_name: Option<String> = None;
@@ -826,12 +830,14 @@ impl Parser {
                             let trivia = self.take_trivia();
                             items.push(Item::StructDecl { 
                                 span: final_span, 
-                                text,
-                                struct_name,
+                                text: text.clone(),
+                                struct_name: struct_name.clone(),
                                 has_typedef: true,
                                 members: Vec::new(),  // TODO: 後で実装
                                 trivia,
                             });
+                            // 型テーブルに登録
+                            self.register_typedef_name(&text);
                         },
                         Some(Token::Enum(..)) => {
                             // typedef enum の処理
@@ -885,13 +891,15 @@ impl Parser {
                             let trivia = self.take_trivia();
                             items.push(Item::EnumDecl { 
                                 span: final_span,
-                                text,
-                                enum_name,
+                                text: text.clone(),
+                                enum_name: enum_name.clone(),
                                 has_typedef: true,
-                                variable_names,
+                                variable_names: variable_names.clone(),
                                 variants: Vec::new(),  // TODO: 後で実装
                                 trivia,
                             });
+                            // 型テーブルに登録
+                            self.register_typedef_name(&text);
                         },
                         Some(Token::Union(..)) => {
                             // typedef union の処理
@@ -942,13 +950,15 @@ impl Parser {
                             let trivia = self.take_trivia();
                             items.push(Item::UnionDecl { 
                                 span: final_span,
-                                text,
-                                union_name,
+                                text: text.clone(),
+                                union_name: union_name.clone(),
                                 has_typedef: true,
-                                variable_names,
+                                variable_names: variable_names.clone(),
                                 members: Vec::new(),  // TODO: 後で実装
                                 trivia,
                             });
+                            // 型テーブルに登録
+                            self.register_typedef_name(&text);
                         },
                         _ => {
                             // 通常の typedef（既存の処理）
@@ -973,7 +983,9 @@ impl Parser {
                                 byte_end_idx: end_byte,
                             };
                             let trivia = self.take_trivia();
-                            items.push(Item::TypedefDecl { span: final_span, text, trivia });
+                            items.push(Item::TypedefDecl { span: final_span, text: text.clone(), trivia });
+                            // 型テーブルに登録
+                            self.register_typedef_name(&text);
                         }
                     }
                 },
@@ -1193,6 +1205,34 @@ impl Parser {
             Token::Else(t) => t.span.clone(),
             Token::Endif(t) => t.span.clone(),
             Token::LineComment(t) => t.span.clone(),
+            Token::Plus(t) => t.span.clone(),
+            Token::Minus(t) => t.span.clone(),
+            Token::Slash(t) => t.span.clone(),
+            Token::Percent(t) => t.span.clone(),
+            Token::EqualEqual(t) => t.span.clone(),
+            Token::NotEqual(t) => t.span.clone(),
+            Token::LessThan(t) => t.span.clone(),
+            Token::LessThanOrEqual(t) => t.span.clone(),
+            Token::GreaterThan(t) => t.span.clone(),
+            Token::GreaterThanOrEqual(t) => t.span.clone(),
+            Token::Ampersand(t) => t.span.clone(),
+            Token::AmpersandAmpersand(t) => t.span.clone(),
+            Token::Pipe(t) => t.span.clone(),
+            Token::PipePipe(t) => t.span.clone(),
+            Token::Caret(t) => t.span.clone(),
+            Token::Tilde(t) => t.span.clone(),
+            Token::Exclamation(t) => t.span.clone(),
+            Token::LeftShift(t) => t.span.clone(),
+            Token::RightShift(t) => t.span.clone(),
+            Token::LeftBracket(t) => t.span.clone(),
+            Token::RightBracket(t) => t.span.clone(),
+            Token::Question(t) => t.span.clone(),
+            Token::Colon(t) => t.span.clone(),
+            Token::Comma(t) => t.span.clone(),
+            Token::Dot(t) => t.span.clone(),
+            Token::Arrow(t) => t.span.clone(),
+            Token::PlusPlus(t) => t.span.clone(),
+            Token::MinusMinus(t) => t.span.clone(),
         }
     }
 
@@ -1259,6 +1299,36 @@ impl Parser {
                 }
                 Token::Unsigned(_) => {
                     base_type = Some(BaseType::Unsigned);
+                    break;
+                }
+                Token::Struct(_) => {
+                    // struct [name] を解析
+                    let struct_name = if let Some(Token::Ident(IdentToken { name, .. })) = self.lexer.next_token() {
+                        Some(name)
+                    } else {
+                        None
+                    };
+                    base_type = Some(BaseType::Struct(struct_name));
+                    break;
+                }
+                Token::Union(_) => {
+                    // union [name] を解析
+                    let union_name = if let Some(Token::Ident(IdentToken { name, .. })) = self.lexer.next_token() {
+                        Some(name)
+                    } else {
+                        None
+                    };
+                    base_type = Some(BaseType::Union(union_name));
+                    break;
+                }
+                Token::Enum(_) => {
+                    // enum [name] を解析
+                    let enum_name = if let Some(Token::Ident(IdentToken { name, .. })) = self.lexer.next_token() {
+                        Some(name)
+                    } else {
+                        None
+                    };
+                    base_type = Some(BaseType::Enum(enum_name));
                     break;
                 }
                 _ => {
@@ -1391,6 +1461,7 @@ impl Parser {
                             }
                             _ => {
                                 // Not a qualifier or asterisk - save this layer and exit
+                                println!("DEBUG parse_type: Stopping pointer parsing at token: {:?}", next_token);
                                 pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
                                     qualifiers,
                                     asterisk_span,
@@ -1402,6 +1473,8 @@ impl Parser {
                 }
                 _ => {
                     // アスタリスクではない - ポインタ層の解析終了
+                    // このトークンが識別子の場合、それは型名なので消費しないためにNoneを返す
+                    // （呼び出し側で型名を取得する必要がある場合は別のメソッドを使用）
                     break;
                 }
             }
@@ -1414,4 +1487,318 @@ impl Parser {
             end_span,
         ))
     }
+    
+    /// typedef宣言用：型と型名（declarator）を両方パース
+    /// parse_type()と違い、型の後の識別子も返す
+    pub fn parse_type_and_declarator(&mut self) -> Option<(Type, String)> {
+        let mut base_qualifiers = Vec::new();
+        let base_type: Option<BaseType>;
+        let mut last_span: Option<Span>;
+
+        // Phase 1: Parse base qualifiers and base type
+        loop {
+            let token = self.lexer.next_token()?;
+            let token_span = Self::get_token_span(&token);
+            
+            last_span = Some(token_span.clone());
+
+            match token {
+                // Type qualifiers
+                Token::Const(_) => {
+                    base_qualifiers.push(TypeQualifier::Const);
+                }
+                Token::Volatile(_) => {
+                    base_qualifiers.push(TypeQualifier::Volatile);
+                }
+                Token::Restrict(_) => {
+                    base_qualifiers.push(TypeQualifier::Restrict);
+                }
+                Token::Atomic(_) => {
+                    base_qualifiers.push(TypeQualifier::Atomic);
+                }
+                // Base types
+                Token::Void(_) => {
+                    base_type = Some(BaseType::Void);
+                    break;
+                }
+                Token::Char(_) => {
+                    base_type = Some(BaseType::Char);
+                    break;
+                }
+                Token::Short(_) => {
+                    base_type = Some(BaseType::Short);
+                    break;
+                }
+                Token::Int(_) => {
+                    base_type = Some(BaseType::Int);
+                    break;
+                }
+                Token::Long(_) => {
+                    base_type = Some(BaseType::Long);
+                    break;
+                }
+                Token::Float(_) => {
+                    base_type = Some(BaseType::Float);
+                    break;
+                }
+                Token::Double(_) => {
+                    base_type = Some(BaseType::Double);
+                    break;
+                }
+                Token::Signed(_) => {
+                    base_type = Some(BaseType::Signed);
+                    break;
+                }
+                Token::Unsigned(_) => {
+                    base_type = Some(BaseType::Unsigned);
+                    break;
+                }
+                Token::Struct(_) => {
+                    // struct [name] を解析
+                    // 次のトークンを確認（波括弧の場合は匿名struct）
+                    match self.lexer.next_token() {
+                        Some(Token::Ident(IdentToken { name, .. })) => {
+                            base_type = Some(BaseType::Struct(Some(name)));
+                            break;
+                        }
+                        Some(Token::LeftBrace(_)) => {
+                            // 匿名struct { ... } - parse_type_and_declaratorでは処理できない
+                            return None;
+                        }
+                        _ => {
+                            // その他の場合も失敗
+                            return None;
+                        }
+                    }
+                }
+                Token::Union(_) => {
+                    // union [name] を解析
+                    // 次のトークンを確認（波括弧の場合は匿名union）
+                    match self.lexer.next_token() {
+                        Some(Token::Ident(IdentToken { name, .. })) => {
+                            base_type = Some(BaseType::Union(Some(name)));
+                            break;
+                        }
+                        Some(Token::LeftBrace(_)) => {
+                            // 匿名union { ... } - parse_type_and_declaratorでは処理できない
+                            return None;
+                        }
+                        _ => {
+                            // その他の場合も失敗
+                            return None;
+                        }
+                    }
+                }
+                Token::Enum(_) => {
+                    // enum [name] を解析
+                    // 次のトークンを確認（波括弧の場合は匿名enum）
+                    match self.lexer.next_token() {
+                        Some(Token::Ident(IdentToken { name, .. })) => {
+                            base_type = Some(BaseType::Enum(Some(name)));
+                            break;
+                        }
+                        Some(Token::LeftBrace(_)) => {
+                            // 匿名enum { ... } - parse_type_and_declaratorでは処理できない
+                            return None;
+                        }
+                        _ => {
+                            // その他の場合も失敗
+                            return None;
+                        }
+                    }
+                }
+                _ => {
+                    return None;
+                }
+            }
+        }
+
+        let base_type = base_type?;
+        let mut end_span = last_span?;
+
+        // フェーズ2: ポインタ層を解析
+        let mut pointer_layers = Vec::new();
+        let mut declarator_name: Option<String> = None;
+        
+        'pointer_loop: loop {
+            let token = match self.lexer.next_token() {
+                Some(t) => t,
+                None => break,
+            };
+
+            match token {
+                Token::Asterisk(ast_token) => {
+                    let asterisk_span = ast_token.span.clone();
+                    end_span = asterisk_span.clone();
+                    let mut qualifiers = Vec::new();
+
+                    'qualifier_loop: loop {
+                        let next_token = match self.lexer.next_token() {
+                            Some(t) => t,
+                            None => {
+                                pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
+                                    qualifiers,
+                                    asterisk_span,
+                                ));
+                                break 'pointer_loop;
+                            }
+                        };
+
+                        match next_token {
+                            Token::Const(_) => {
+                                qualifiers.push(TypeQualifier::Const);
+                                end_span = Self::get_token_span(&next_token);
+                            }
+                            Token::Volatile(_) => {
+                                qualifiers.push(TypeQualifier::Volatile);
+                                end_span = Self::get_token_span(&next_token);
+                            }
+                            Token::Restrict(_) => {
+                                qualifiers.push(TypeQualifier::Restrict);
+                                end_span = Self::get_token_span(&next_token);
+                            }
+                            Token::Atomic(_) => {
+                                qualifiers.push(TypeQualifier::Atomic);
+                                end_span = Self::get_token_span(&next_token);
+                            }
+                            Token::Asterisk(_) => {
+                                pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
+                                    qualifiers,
+                                    asterisk_span,
+                                ));
+                                continue 'pointer_loop;
+                            }
+                            Token::Ident(IdentToken { name, .. }) => {
+                                pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
+                                    qualifiers,
+                                    asterisk_span,
+                                ));
+                                declarator_name = Some(name);
+                                break 'pointer_loop;
+                            }
+                            _ => {
+                                pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
+                                    qualifiers,
+                                    asterisk_span,
+                                ));
+                                break 'pointer_loop;
+                            }
+                        }
+                    }
+                }
+                Token::Ident(IdentToken { name, .. }) => {
+                    declarator_name = Some(name);
+                    break;
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+
+        let type_info = Type::with_pointers(
+            base_type,
+            base_qualifiers,
+            pointer_layers,
+            end_span,
+        );
+        
+        declarator_name.map(|name| (type_info, name))
+    }
+    
+    /// typedef宣言から型名と型情報を抽出して型テーブルに登録
+    fn register_typedef_name(&mut self, typedef_text: &str) {
+        // typedef宣言全体をパースして型情報と型名を取得
+        // 例: "typedef int MyInt;" -> 型名: MyInt, 型情報: int
+        // 例: "typedef int *IntPtr;" -> 型名: IntPtr, 型情報: int*
+        // 例: "typedef struct { int x; } Point;" -> 型名: Point
+        
+        // typedef宣言全体を再度パース
+        let typedef_lexer = Lexer::new(typedef_text);
+        let mut typedef_parser = Parser::new(typedef_lexer);
+        
+        // typedefキーワードをスキップ
+        if !matches!(typedef_parser.lexer.next_token(), Some(Token::Typedef(_))) {
+            return;
+        }
+        
+        // まず parse_type_and_declarator で試す（基本型の場合）
+        if let Some((type_info, type_name)) = typedef_parser.parse_type_and_declarator() {
+            self.type_table.register_type(type_name, type_info);
+            return;
+        }
+        
+        // parse_type_and_declaratorが失敗した場合（struct/union/enum/関数ポインタ/配列の場合）
+        // セミコロンの直前の識別子を型名として取得
+        let typedef_lexer2 = Lexer::new(typedef_text);
+        let mut typedef_parser2 = Parser::new(typedef_lexer2);
+        
+        let mut last_ident: Option<String> = None;
+        let mut brace_depth = 0; // 波括弧の深さを追跡
+        let mut paren_depth = 0; // 丸括弧の深さを追跡
+        let mut bracket_depth = 0; // 角括弧の深さを追跡
+        
+        loop {
+            match typedef_parser2.lexer.next_token() {
+                Some(Token::LeftBrace(_)) => {
+                    brace_depth += 1;
+                }
+                Some(Token::RightBrace(_)) => {
+                    brace_depth -= 1;
+                }
+                Some(Token::LeftParen(_)) => {
+                    paren_depth += 1;
+                }
+                Some(Token::RightParen(_)) => {
+                    paren_depth -= 1;
+                }
+                Some(Token::LeftBracket(_)) => {
+                    bracket_depth += 1;
+                }
+                Some(Token::RightBracket(_)) => {
+                    bracket_depth -= 1;
+                }
+                Some(Token::Ident(IdentToken { name, .. })) => {
+                    // 波括弧の外の識別子のみを型名候補とする
+                    // （丸括弧・角括弧内は型名の可能性あり：関数ポインタや配列）
+                    if brace_depth == 0 {
+                        last_ident = Some(name);
+                    }
+                }
+                Some(Token::Semicolon(_)) => {
+                    // 全ての括弧の外のセミコロンで終了
+                    if brace_depth == 0 && paren_depth == 0 && bracket_depth == 0 {
+                        break;
+                    }
+                }
+                None => {
+                    break;
+                }
+                _ => {
+                    // 他のトークンは無視
+                }
+            }
+        }
+        
+        // セミコロン直前の識別子を型名として登録（型情報はintをデフォルトとする）
+        if let Some(type_name) = last_ident {
+            // struct/union/enum/関数ポインタ/配列の場合、詳細な型情報は保持しないが、型名は登録する
+            // TODO: 将来的には完全な型情報も保存する
+            let dummy_span = Span {
+                start_line: 0,
+                start_column: 0,
+                end_line: 0,
+                end_column: 0,
+                byte_start_idx: 0,
+                byte_end_idx: 0,
+            };
+            self.type_table.register_type(type_name, Type::new(BaseType::Int, dummy_span));
+        }
+    }
+    
+    /// 型テーブルへの参照を取得（ExpressionParserで使用）
+    pub fn get_type_table(&self) -> &TypeTable {
+        &self.type_table
+    }
 }
+

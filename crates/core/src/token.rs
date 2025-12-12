@@ -34,6 +34,147 @@ pub struct AsteriskToken {
     pub span: Span,
 }
 
+// 演算子トークン
+#[derive(Debug, Clone)]
+pub struct PlusToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct MinusToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct SlashToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct PercentToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct EqualEqualToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct NotEqualToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct LessThanToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct LessThanOrEqualToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct GreaterThanToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct GreaterThanOrEqualToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct AmpersandToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct AmpersandAmpersandToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct PipeToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct PipePipeToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct CaretToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct TildeToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExclamationToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct LeftShiftToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct RightShiftToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct LeftBracketToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct RightBracketToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct QuestionToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ColonToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct CommaToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct DotToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArrowToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct PlusPlusToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct MinusMinusToken {
+    pub span: Span,
+}
+
 #[derive(Debug, Clone)]
 pub struct IdentToken {
     pub span: Span,
@@ -196,7 +337,7 @@ pub struct EndifToken {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LineCommentToken {
     pub span: Span,
 }
@@ -214,7 +355,7 @@ pub struct FloatLiteralToken {
 }
 
 // トークンの enum
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Token {
     BlockComment(BlockCommentToken),
     LineComment(LineCommentToken),
@@ -231,6 +372,37 @@ pub enum Token {
     Asterisk(AsteriskToken),
     NumberLiteral(NumberLiteralToken),
     FloatLiteral(FloatLiteralToken),
+    
+    // 演算子
+    Plus(PlusToken),
+    Minus(MinusToken),
+    Slash(SlashToken),
+    Percent(PercentToken),
+    EqualEqual(EqualEqualToken),
+    NotEqual(NotEqualToken),
+    LessThan(LessThanToken),
+    LessThanOrEqual(LessThanOrEqualToken),
+    GreaterThan(GreaterThanToken),
+    GreaterThanOrEqual(GreaterThanOrEqualToken),
+    Ampersand(AmpersandToken),
+    AmpersandAmpersand(AmpersandAmpersandToken),
+    Pipe(PipeToken),
+    PipePipe(PipePipeToken),
+    Caret(CaretToken),
+    Tilde(TildeToken),
+    Exclamation(ExclamationToken),
+    LeftShift(LeftShiftToken),
+    RightShift(RightShiftToken),
+    LeftBracket(LeftBracketToken),
+    RightBracket(RightBracketToken),
+    Question(QuestionToken),
+    Colon(ColonToken),
+    Comma(CommaToken),
+    Dot(DotToken),
+    Arrow(ArrowToken),
+    PlusPlus(PlusPlusToken),
+    MinusMinus(MinusMinusToken),
+    
     Ident(IdentToken),
     Auto(AutoToken),
     Register(RegisterToken),
