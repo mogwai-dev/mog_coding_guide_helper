@@ -591,6 +591,131 @@ impl Lexer {
                         start_byte_flag = Some(byte_idx);
                     }
 
+                    // 数字リテラルの判定
+                    if ch.is_ascii_digit() {
+                        let actual_byte_idx_start = byte_idx;
+                        self.next_char();
+                        let mut is_float = false;
+
+                        // 16進数 (0x または 0X)
+                        if actual_byte_idx_start + 1 < self.input.len() 
+                            && &self.input[actual_byte_idx_start..actual_byte_idx_start+1] == "0"
+                            && matches!(self.now, Some((_, 'x')) | Some((_, 'X'))) {
+                            self.next_char(); // 'x' または 'X' を消費
+                            
+                            // 16進数の桁を読む
+                            loop {
+                                match self.now {
+                                    Some((_, next_ch)) if next_ch.is_ascii_hexdigit() => {
+                                        self.next_char();
+                                    }
+                                    _ => break,
+                                }
+                            }
+                        } else {
+                            // 8進数または10進数
+                            loop {
+                                match self.now {
+                                    Some((_, next_ch)) if next_ch.is_ascii_digit() => {
+                                        self.next_char();
+                                    }
+                                    _ => break,
+                                }
+                            }
+                            
+                            // 小数点をチェック
+                            if matches!(self.now, Some((_, '.'))) {
+                                is_float = true;
+                                self.next_char(); // '.' を消費
+                                
+                                // 小数部を読む
+                                loop {
+                                    match self.now {
+                                        Some((_, next_ch)) if next_ch.is_ascii_digit() => {
+                                            self.next_char();
+                                        }
+                                        _ => break,
+                                    }
+                                }
+                            }
+                            
+                            // 指数部をチェック (e または E)
+                            if matches!(self.now, Some((_, 'e')) | Some((_, 'E'))) {
+                                is_float = true;
+                                self.next_char(); // 'e' または 'E' を消費
+                                
+                                // 符号をチェック (+ または -)
+                                if matches!(self.now, Some((_, '+')) | Some((_, '-'))) {
+                                    self.next_char();
+                                }
+                                
+                                // 指数部の数値を読む
+                                loop {
+                                    match self.now {
+                                        Some((_, next_ch)) if next_ch.is_ascii_digit() => {
+                                            self.next_char();
+                                        }
+                                        _ => break,
+                                    }
+                                }
+                            }
+                        }
+
+                        // suffix を読む
+                        if is_float {
+                            // float suffix: f, F, l, L
+                            loop {
+                                match self.now {
+                                    Some((_, 'f')) | Some((_, 'F')) | Some((_, 'l')) | Some((_, 'L')) => {
+                                        self.next_char();
+                                    }
+                                    _ => break,
+                                }
+                            }
+                        } else {
+                            // integer suffix: u, U, l, L
+                            loop {
+                                match self.now {
+                                    Some((_, 'u')) | Some((_, 'U')) | Some((_, 'l')) | Some((_, 'L')) => {
+                                        self.next_char();
+                                    }
+                                    _ => break,
+                                }
+                            }
+                        }
+
+                        // 数値リテラルの終端
+                        let actual_byte_idx_end = if let Some((b, _)) = self.now {
+                            b
+                        } else {
+                            self.input.len()
+                        };
+
+                        let value = self.input[actual_byte_idx_start..actual_byte_idx_end].to_string();
+                        let byte_start_idx = start_byte_flag.unwrap();
+                        let byte_end_idx = actual_byte_idx_end;
+                        let span = Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx,
+                            byte_end_idx,
+                        };
+                        
+                        if is_float {
+                            return Some(Token::FloatLiteral(FloatLiteralToken {
+                                span,
+                                value,
+                            }));
+                        } else {
+                            return Some(Token::NumberLiteral(NumberLiteralToken {
+                                span,
+                                value,
+                            }));
+                        }
+                    }
+
                     // キーワードか識別子の判定
                     if self.is_identifier_start(ch) {
                         let actual_byte_idx_start = byte_idx;

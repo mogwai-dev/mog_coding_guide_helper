@@ -49,6 +49,12 @@ fn lexer_sample(filename: &str) {
             Token::Asterisk(AsteriskToken { span }) => {
                 println!("Asterisk from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
+            Token::NumberLiteral(NumberLiteralToken { span, value }) => {
+                println!("Number literal from ({}, {}) to ({}, {}): {:?} (value: {})", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx], value);
+            },
+            Token::FloatLiteral(FloatLiteralToken { span, value }) => {
+                println!("Float literal from ({}, {}) to ({}, {}): {:?} (value: {})", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx], value);
+            },
             Token::Ident(IdentToken { span, name }) => {
                 println!("Ident from ({}, {}) to ({}, {}): {:?} (name: {})", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx], name);
             },

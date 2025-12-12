@@ -447,16 +447,37 @@ impl Parser {
                                     
                                     loop {
                                         match self.lexer.next_token() {
+                                            Some(Token::NumberLiteral(NumberLiteralToken { value, .. })) => {
+                                                if expect_value {
+                                                    // = の後の数値リテラル
+                                                    // suffixを除去 (u, U, l, L, ll, LL等)
+                                                    let value_without_suffix = value.trim_end_matches(|c: char| {
+                                                        c == 'u' || c == 'U' || c == 'l' || c == 'L'
+                                                    });
+                                                    
+                                                    // 16進数 (0x), 8進数 (0), 10進数に対応
+                                                    let parsed_value = if value_without_suffix.starts_with("0x") || value_without_suffix.starts_with("0X") {
+                                                        i64::from_str_radix(&value_without_suffix[2..], 16).ok()
+                                                    } else if value_without_suffix.starts_with("0") && value_without_suffix.len() > 1 {
+                                                        i64::from_str_radix(&value_without_suffix[1..], 8).ok()
+                                                    } else {
+                                                        value_without_suffix.parse::<i64>().ok()
+                                                    };
+                                                    current_value = parsed_value;
+                                                    expect_value = false;
+                                                }
+                                            },
+                                            Some(Token::Equal(..)) => {
+                                                // = の後に数値が来る
+                                                expect_value = true;
+                                            },
                                             Some(Token::Ident(IdentToken { name, span: id_span })) => {
                                                 if expect_value {
-                                                    // = の後の数値
+                                                    // 後方互換性: Identとして数値が来る場合（本来はNumberLiteralが来るべき）
                                                     if let Ok(val) = name.parse::<i64>() {
                                                         current_value = Some(val);
                                                     }
                                                     expect_value = false;
-                                                } else if name == "=" {
-                                                    // 次に数値が来る
-                                                    expect_value = true;
                                                 } else if name == "," {
                                                     // 前の列挙子を保存してリセット
                                                     if let Some(prev_name) = current_name.take() {
@@ -1137,6 +1158,8 @@ impl Parser {
             Token::Semicolon(t) => t.span.clone(),
             Token::Equal(t) => t.span.clone(),
             Token::Asterisk(t) => t.span.clone(),
+            Token::NumberLiteral(t) => t.span.clone(),
+            Token::FloatLiteral(t) => t.span.clone(),
             Token::Ident(t) => t.span.clone(),
             Token::Auto(t) => t.span.clone(),
             Token::Register(t) => t.span.clone(),

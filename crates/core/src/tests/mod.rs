@@ -6,6 +6,7 @@ mod lexer_include_tests;
 mod lexer_define_tests;
 mod lexer_typedef_tests;
 mod lexer_keyword_tests;
+mod lexer_number_tests;
 mod parser_tests;
 mod formatter_tests;
 mod function_tests;

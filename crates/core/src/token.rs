@@ -201,6 +201,18 @@ pub struct LineCommentToken {
     pub span: Span,
 }
 
+#[derive(Debug, Clone)]
+pub struct NumberLiteralToken {
+    pub span: Span,
+    pub value: String,  // "123", "0x1A", "0755" など元の文字列表現
+}
+
+#[derive(Debug, Clone)]
+pub struct FloatLiteralToken {
+    pub span: Span,
+    pub value: String,  // "1.5", "3.14f", "1e10", "2.5e-3L" など元の文字列表現
+}
+
 // トークンの enum
 #[derive(Debug)]
 pub enum Token {
@@ -217,6 +229,8 @@ pub enum Token {
     Semicolon(SemicolonToken),
     Equal(EqualToken),
     Asterisk(AsteriskToken),
+    NumberLiteral(NumberLiteralToken),
+    FloatLiteral(FloatLiteralToken),
     Ident(IdentToken),
     Auto(AutoToken),
     Register(RegisterToken),
