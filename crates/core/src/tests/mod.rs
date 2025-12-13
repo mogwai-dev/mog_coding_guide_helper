@@ -8,6 +8,8 @@ mod lexer_typedef_tests;
 mod lexer_keyword_tests;
 mod lexer_number_tests;
 mod lexer_operator_tests;
+mod lexer_line_continuation_tests;
+mod lexer_error_tests;
 mod parser_tests;
 mod formatter_tests;
 mod function_tests;

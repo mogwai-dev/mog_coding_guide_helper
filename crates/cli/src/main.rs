@@ -129,6 +129,11 @@ fn lexer_sample(filename: &str) {
             Token::PlusPlus(PlusPlusToken { span }) | Token::MinusMinus(MinusMinusToken { span }) => {
                 println!("Operator from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
+            Token::Error(coding_guide_helper_core::token::ErrorToken { span, message }) => {
+                eprintln!("[LEXER ERROR] Line {}, Column {}: {}", span.start_line, span.start_column, message);
+                eprintln!("  Code: {:?}", &contents[span.byte_start_idx..span.byte_end_idx]);
+                std::process::exit(1);
+            },
         }
     }
 }

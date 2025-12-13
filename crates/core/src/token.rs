@@ -176,6 +176,12 @@ pub struct MinusMinusToken {
 }
 
 #[derive(Debug, Clone)]
+pub struct ErrorToken {
+    pub span: Span,
+    pub message: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct IdentToken {
     pub span: Span,
     pub name: String,
@@ -459,6 +465,7 @@ pub enum Token {
     ElseKeyword(ElseKeywordToken),
     While(WhileToken),
     For(ForToken),
+    Error(ErrorToken),
 }
 
 impl Token {
@@ -539,6 +546,7 @@ impl Token {
             Token::ElseKeyword(t) => t.span.clone(),
             Token::While(t) => t.span.clone(),
             Token::For(t) => t.span.clone(),
+            Token::Error(t) => t.span.clone(),
         }
     }
 }

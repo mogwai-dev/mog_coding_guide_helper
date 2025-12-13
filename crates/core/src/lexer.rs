@@ -1006,6 +1006,31 @@ impl Lexer {
                         }));
                     }
                 },
+                Some((byte_idx, '\\')) => {
+                    // バックスラッシュ単体はエラー（行継続は非サポート）
+                    if start_byte_flag.is_none() {
+                        start_byte_flag = Some(byte_idx);
+                    }
+                    self.next_char();
+
+                    let end_byte = if let Some((b, _)) = self.peeked {
+                        b
+                    } else {
+                        self.input.len()
+                    };
+
+                    return Some(Token::Error(ErrorToken {
+                        span: Span {
+                            start_line,
+                            start_column,
+                            end_line: self.line,
+                            end_column: self.column,
+                            byte_start_idx: start_byte_flag.unwrap(),
+                            byte_end_idx: end_byte,
+                        },
+                        message: "Line continuation (backslash) is not supported outside of preprocessor directives. See README.md for details.".to_string(),
+                    }));
+                },
                 Some((byte_idx, '#')) => {
                     if start_byte_flag.is_none() {
                         start_byte_flag = Some(byte_idx);
@@ -1013,6 +1038,7 @@ impl Lexer {
                     self.next_char();
 
                     // ディレクティブを行末まで読み取る（先頭の空白は start_char_idx でカバーされる）
+                    // バックスラッシュ + 改行での行継続をサポート
                     let mut directive_text = String::new();
                     directive_text.push('#');
 
@@ -1021,7 +1047,22 @@ impl Lexer {
                             Some((_, ch)) => {
                                 directive_text.push(ch);
                                 self.next_char();
+                                
                                 if ch == '\n' {
+                                    // 前の文字がバックスラッシュかチェック
+                                    // \r\n の場合は \r の前にバックスラッシュがあるかチェック
+                                    let chars: Vec<char> = directive_text.chars().collect();
+                                    let mut check_pos = chars.len() - 2; // \n の前
+                                    
+                                    // \r があればスキップ
+                                    if check_pos > 0 && chars[check_pos] == '\r' {
+                                        check_pos -= 1;
+                                    }
+                                    
+                                    if check_pos < chars.len() && chars[check_pos] == '\\' {
+                                        // バックスラッシュ + 改行なので行継続
+                                        continue;
+                                    }
                                     break;
                                 }
                             }
@@ -1030,7 +1071,12 @@ impl Lexer {
                     }
 
                     // directive の中身（# を取り除いた後）を解析用に取得（先頭空白は trim_start する）
-                    let content = directive_text.trim_start_matches('#').trim_start().to_string();
+                    // 行継続記号（\ + 改行）を削除
+                    let mut content = directive_text.trim_start_matches('#').trim_start().to_string();
+                    
+                    // バックスラッシュ + 改行文字の組み合わせを削除
+                    content = content.replace("\\\r\n", "");
+                    content = content.replace("\\\n", "");
 
                     // バイトオフセットを計算：現在の文字のバイト位置か入力終端
                     let end_byte_idx = if let Some((b, _)) = self.now {

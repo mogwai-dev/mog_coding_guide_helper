@@ -1407,6 +1407,7 @@ impl Parser {
             Token::ElseKeyword(t) => t.span.clone(),
             Token::While(t) => t.span.clone(),
             Token::For(t) => t.span.clone(),
+            Token::Error(t) => t.span.clone(),
         }
     }
 
