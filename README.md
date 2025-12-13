@@ -7,10 +7,14 @@ C言語のコーディングガイドチェッカー＆フォーマッター
 - **診断**: コーディング規約違反を検出
   - CGH001: ファイルヘッダーコメントの確認
   - CGH002: 関数フォーマットのチェック
+  - CGH003: 型安全性の警告（void変数、3重ポインタなど）
+  - CGH004: 記憶域クラス指定子の順序チェック
+  - CGH005: マクロの置換値が演算子を含む場合の括弧チェック
 
 - **フォーマット**: コードの自動整形
   - ファイルヘッダーの自動追加
-  - 空白の整理
+  - 4スペースをタブに変換（オプション）
+  - インデントの正規化
 
 **注意**: このツールはコーディングガイドチェックに特化しています。以下の機能は**既存のC言語LSP（clangd、C/C++ Extension等）との併用を推奨**します：
 - シンボル定義へのジャンプ（Go to Definition）
@@ -89,6 +93,7 @@ check_file_header = true
 check_function_format = true
 check_type_safety = true
 check_storage_class_order = true
+check_macro_parentheses = true
 
 [file_header]
 required_fields = ["Author", "Date", "Purpose"]
@@ -105,6 +110,7 @@ use_tabs = true  # 4スペースをタブに変換
   - `check_function_format`: 関数フォーマットのチェック (CGH002)
   - `check_type_safety`: 型安全性の警告 (CGH003)
   - `check_storage_class_order`: 記憶域クラス指定子の順序チェック (CGH004)
+  - `check_macro_parentheses`: マクロの置換値の括弧チェック (CGH005)
 
 - `[file_header]` - ファイルヘッダーの要件
   - `required_fields`: 必須フィールドのリスト

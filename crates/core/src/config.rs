@@ -28,6 +28,7 @@ pub struct DiagnosticsConfig {
     pub check_function_format: bool,
     pub check_type_safety: bool,
     pub check_storage_class_order: bool,
+    pub check_macro_parentheses: bool,
 }
 
 impl Default for DiagnosticsConfig {
@@ -37,6 +38,7 @@ impl Default for DiagnosticsConfig {
             check_function_format: true,
             check_type_safety: true,
             check_storage_class_order: true,
+            check_macro_parentheses: true,
         }
     }
 }
@@ -125,6 +127,7 @@ impl ProjectConfig {
             check_function_format: self.diagnostics.check_function_format,
             check_type_safety: self.diagnostics.check_type_safety,
             check_storage_class_order: self.diagnostics.check_storage_class_order,
+            check_macro_parentheses: self.diagnostics.check_macro_parentheses,
         }
     }
 }

@@ -20,6 +20,7 @@ mod extern_tests;
 mod ifdef_tests;
 mod type_parser_tests;
 mod diagnostic_type_tests;
+mod diagnostic_macro_tests;
 mod expression_parser_tests;
 mod expression_binary_op_tests;
 mod expression_unary_tests;

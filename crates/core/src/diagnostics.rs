@@ -24,6 +24,7 @@ pub struct DiagnosticConfig {
     pub check_storage_class_order: bool,
     pub check_function_format: bool,
     pub check_type_safety: bool,
+    pub check_macro_parentheses: bool,  // マクロ定義の値が括弧で囲まれているかチェック
 }
 
 impl Default for DiagnosticConfig {
@@ -33,6 +34,7 @@ impl Default for DiagnosticConfig {
             check_storage_class_order: true,
             check_function_format: true,
             check_type_safety: true,
+            check_macro_parentheses: true,
         }
     }
 }
@@ -53,6 +55,10 @@ pub fn diagnose(tu: &TranslationUnit, config: &DiagnosticConfig) -> Vec<Diagnost
     
     if config.check_type_safety {
         diagnostics.extend(check_type_safety(tu));
+    }
+    
+    if config.check_macro_parentheses {
+        diagnostics.extend(check_macro_parentheses(tu));
     }
     
     // 今後、他のチェックもここに追加
@@ -256,4 +262,132 @@ fn check_type_safety(tu: &TranslationUnit) -> Vec<Diagnostic> {
     }
     
     diagnostics
+}
+
+/// #defineマクロの置換値が括弧で囲まれているかチェック
+fn check_macro_parentheses(tu: &TranslationUnit) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    
+    fn check_items(items: &[Item], diagnostics: &mut Vec<Diagnostic>) {
+        for item in items {
+            match item {
+                Item::Define { text, span, .. } => {
+                    // #define MACRO value の形式から value 部分を抽出
+                    // テキストから "#define" を除去し、マクロ名と値を取得
+                    let content = text.trim();
+                    
+                    // #define を除去
+                    if let Some(after_define) = content.strip_prefix("#define") {
+                        let parts: Vec<&str> = after_define.trim().splitn(2, char::is_whitespace).collect();
+                        
+                        if parts.len() == 2 {
+                            let macro_name = parts[0];
+                            let macro_value = parts[1].trim();
+                            
+                            // 関数マクロ（括弧を含む名前）はスキップ
+                            if macro_name.contains('(') {
+                                continue;
+                            }
+                            
+                            // 空の値や数値リテラルのみはスキップ
+                            if macro_value.is_empty() || is_simple_literal(macro_value) {
+                                continue;
+                            }
+                            
+                            // 演算子を含むかチェック
+                            if contains_operator(macro_value) {
+                                // 括弧で囲まれているかチェック
+                                if !is_wrapped_in_parentheses(macro_value) {
+                                    diagnostics.push(Diagnostic {
+                                        span: span.clone(),
+                                        severity: DiagnosticSeverity::Warning,
+                                        message: format!(
+                                            "マクロ '{}' の置換値 '{}' は演算子を含んでいますが、括弧で囲まれていません。意図しない演算子の優先順位問題を避けるため、括弧で囲むことを推奨します。",
+                                            macro_name,
+                                            macro_value
+                                        ),
+                                        code: "CGH005".to_string(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                },
+                Item::ConditionalBlock { items, .. } => {
+                    // 再帰的にチェック
+                    check_items(items, diagnostics);
+                },
+                _ => {}
+            }
+        }
+    }
+    
+    check_items(&tu.items, &mut diagnostics);
+    diagnostics
+}
+
+/// 単純なリテラル（数値、文字列）かどうか判定
+fn is_simple_literal(value: &str) -> bool {
+    let trimmed = value.trim();
+    
+    // 空白を含む場合は複雑な式とみなす
+    if trimmed.contains(char::is_whitespace) {
+        return false;
+    }
+    
+    // 数値リテラル（10進数、16進数、8進数、浮動小数点）
+    if trimmed.parse::<i64>().is_ok() || trimmed.parse::<f64>().is_ok() {
+        return true;
+    }
+    
+    // 16進数
+    if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+        return true;
+    }
+    
+    // 文字列リテラル
+    if (trimmed.starts_with('"') && trimmed.ends_with('"')) ||
+       (trimmed.starts_with('\'') && trimmed.ends_with('\'')) {
+        return true;
+    }
+    
+    false
+}
+
+/// 演算子を含むかチェック
+fn contains_operator(value: &str) -> bool {
+    let operators = ["+", "-", "*", "/", "%", "<<", ">>", "&", "|", "^", "~"];
+    
+    for op in &operators {
+        if value.contains(op) {
+            return true;
+        }
+    }
+    
+    false
+}
+
+/// 値全体が括弧で囲まれているかチェック
+fn is_wrapped_in_parentheses(value: &str) -> bool {
+    let trimmed = value.trim();
+    
+    if !trimmed.starts_with('(') || !trimmed.ends_with(')') {
+        return false;
+    }
+    
+    // 対応する括弧かチェック
+    let mut depth = 0;
+    for (i, ch) in trimmed.chars().enumerate() {
+        if ch == '(' {
+            depth += 1;
+        } else if ch == ')' {
+            depth -= 1;
+            // 最初の開き括弧に対応する閉じ括弧が最後でない場合はfalse
+            if depth == 0 && i < trimmed.len() - 1 {
+                return false;
+            }
+        }
+    }
+    
+    depth == 0
 }
