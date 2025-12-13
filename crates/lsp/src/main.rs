@@ -1,16 +1,34 @@
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
-use coding_guide_helper_core::{Lexer, Parser, diagnose, DiagnosticConfig, DiagnosticSeverity};
+use coding_guide_helper_core::{Lexer, Parser, diagnose, DiagnosticSeverity, ProjectConfig};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[derive(Debug)]
 struct Backend {
     client: Client,
+    config: Arc<RwLock<ProjectConfig>>,
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        // ワークスペースルートから設定を読み込む
+        if let Some(workspace_folders) = params.workspace_folders {
+            if let Some(folder) = workspace_folders.first() {
+                if let Ok(path) = folder.uri.to_file_path() {
+                    let loaded_config = ProjectConfig::find_and_load(&path);
+                    let mut config = self.config.write().await;
+                    *config = loaded_config;
+                    
+                    self.client
+                        .log_message(MessageType::INFO, format!("Loaded config from workspace: {}", path.display()))
+                        .await;
+                }
+            }
+        }
+        
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: "Coding Guide Helper".to_string(),
@@ -107,7 +125,9 @@ impl Backend {
         let mut parser = Parser::new(lexer);
         let tu = parser.parse();
         
-        let config = DiagnosticConfig::default();
+        // プロジェクト設定から診断設定を取得
+        let project_config = self.config.read().await;
+        let config = project_config.to_diagnostic_config();
         let diagnostics = diagnose(&tu, &config);
         
         // LSP Diagnosticに変換
@@ -154,6 +174,9 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend { client });
+    let (service, socket) = LspService::new(|client| Backend { 
+        client,
+        config: Arc::new(RwLock::new(ProjectConfig::default())),
+    });
     Server::new(stdin, stdout, socket).serve(service).await;
 }

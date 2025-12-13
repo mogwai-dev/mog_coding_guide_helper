@@ -1,0 +1,11 @@
+[diagnostics]
+check_file_header = false
+check_function_format = true
+check_type_safety = true
+check_storage_class_order = true
+
+[file_header]
+required_fields = ["Author", "Date"]
+
+[formatting]
+add_file_header = false

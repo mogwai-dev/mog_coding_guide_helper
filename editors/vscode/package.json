@@ -20,7 +20,7 @@
     "languages": [
       {
         "id": "c",
-        "extensions": [".c", ".h"]
+        "extensions": [".c", ".h", ".ino"]
       }
     ],
     "configuration": {

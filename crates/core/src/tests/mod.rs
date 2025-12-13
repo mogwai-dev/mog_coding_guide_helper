@@ -12,6 +12,7 @@ mod lexer_line_continuation_tests;
 mod lexer_error_tests;
 mod parser_tests;
 mod formatter_tests;
+mod formatter_indent_tests;
 mod function_tests;
 mod enum_tests;
 mod union_tests;

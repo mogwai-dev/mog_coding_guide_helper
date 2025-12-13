@@ -10,6 +10,7 @@ const FILE_HEADER_TEMPLATE: &str = "/*****************************/
 pub struct Formatter {
     pub add_header: bool,  // ヘッダーコメントを追加するかどうか
     pub use_type_info: bool,  // 型情報を使用して変数宣言をフォーマットするかどうか
+    pub use_tabs: bool,  // 4スペースをタブに変換するかどうか
 }
 
 impl Formatter {
@@ -17,6 +18,7 @@ impl Formatter {
         Formatter {
             add_header: true,  // デフォルトはtrue
             use_type_info: false,  // デフォルトは既存のテキストを使用
+            use_tabs: false,  // デフォルトはスペースのまま
         }
     }
     
@@ -24,6 +26,7 @@ impl Formatter {
         Formatter {
             add_header: false,
             use_type_info: false,
+            use_tabs: false,
         }
     }
     
@@ -31,6 +34,7 @@ impl Formatter {
         Formatter {
             add_header: true,
             use_type_info: true,
+            use_tabs: false,
         }
     }
     
@@ -38,6 +42,15 @@ impl Formatter {
         Formatter {
             add_header,
             use_type_info,
+            use_tabs: false,
+        }
+    }
+    
+    pub fn new_with_all_options(add_header: bool, use_type_info: bool, use_tabs: bool) -> Self {
+        Formatter {
+            add_header,
+            use_type_info,
+            use_tabs,
         }
     }
 
@@ -211,9 +224,10 @@ impl Formatter {
                     let leading = &text[..first_non_ws];
                     let kept_newlines: String = leading.chars().filter(|&c| c == '\n').collect();
 
-                    // 改行を先頭に残し、それ以外の先頭空白は削除して残りを追加
+                    // インデント変換を適用して出力
+                    let content = self.format_item_text(&text[first_non_ws..]);
                     s.push_str(&kept_newlines);
-                    s.push_str(&text[first_non_ws..]);
+                    s.push_str(&content);
                 },
                 Item::EnumDecl { text, .. } => {
                     // 先頭の空白系文字列を見つける（スペース/タブ/CR/LF を含む）
@@ -311,7 +325,62 @@ impl Formatter {
                 s.push_str(&text[first_non_ws..]);
             },
         }
+        
+        // インデント変換を適用
+        if self.use_tabs {
+            s = self.convert_indents_to_tabs(&s);
+        }
+        
         s
+    }
+    
+    /// 4スペースをタブに変換し、ブロック内の字下げを処理
+    fn convert_indents_to_tabs(&self, text: &str) -> String {
+        let mut result = String::new();
+        
+        for line in text.lines() {
+            // 行頭の連続するスペースをカウント
+            let leading_spaces = line.chars().take_while(|&c| c == ' ').count();
+            
+            if leading_spaces > 0 {
+                // 4スペース = 1タブに変換
+                let tabs = leading_spaces / 4;
+                let remaining_spaces = leading_spaces % 4;
+                
+                // タブを追加
+                for _ in 0..tabs {
+                    result.push('\t');
+                }
+                // 余りのスペースを追加
+                for _ in 0..remaining_spaces {
+                    result.push(' ');
+                }
+                
+                // 残りの行を追加
+                result.push_str(&line[leading_spaces..]);
+            } else {
+                // インデントがない行はそのまま
+                result.push_str(line);
+            }
+            
+            result.push('\n');
+        }
+        
+        // 最後の余分な改行を削除（元のテキストに合わせる）
+        if !text.ends_with('\n') && result.ends_with('\n') {
+            result.pop();
+        }
+        
+        result
+    }
+    
+    /// アイテムのテキストをフォーマット（インデント変換を適用）
+    fn format_item_text(&self, text: &str) -> String {
+        if self.use_tabs {
+            self.convert_indents_to_tabs(text)
+        } else {
+            text.to_string()
+        }
     }
 
     // AST から元のコードを再構築

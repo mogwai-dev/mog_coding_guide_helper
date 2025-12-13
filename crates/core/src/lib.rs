@@ -11,6 +11,7 @@ pub mod diagnostics;
 pub mod trivia;
 pub mod type_system;
 pub mod type_table;
+pub mod config;
 
 // 主要な型を re-export して使いやすくする
 pub use span::Span;
@@ -24,6 +25,7 @@ pub use formatter::Formatter;
 pub use diagnostics::{Diagnostic, DiagnosticSeverity, DiagnosticConfig, diagnose};
 pub use trivia::{Comment, Trivia};
 pub use type_table::TypeTable;
+pub use config::ProjectConfig;
 
 #[cfg(test)]
 mod tests;

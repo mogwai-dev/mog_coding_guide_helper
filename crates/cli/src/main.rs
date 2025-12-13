@@ -1,19 +1,46 @@
 use std::fs;
 use std::env;
-use coding_guide_helper_core::{Lexer, Parser, Formatter, Item, diagnose, DiagnosticConfig, DiagnosticSeverity};
+use std::path::Path;
+use coding_guide_helper_core::{Lexer, Parser, Formatter, Item, diagnose, DiagnosticConfig, DiagnosticSeverity, ProjectConfig};
 use coding_guide_helper_core::token::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let filename = if args.len() > 1 {
-        &args[1]
+    
+    // 引数解析: [プログラム名] [--project-root <path>] <filename>
+    let mut project_root: Option<String> = None;
+    let mut filename: Option<String> = None;
+    
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--project-root" && i + 1 < args.len() {
+            project_root = Some(args[i + 1].clone());
+            i += 2;
+        } else {
+            filename = Some(args[i].clone());
+            i += 1;
+        }
+    }
+    
+    let filename = filename.as_deref().unwrap_or("example.txt");
+    
+    // プロジェクト設定を読み込む
+    let config = if let Some(root) = project_root {
+        ProjectConfig::find_and_load(&root)
     } else {
-        "example.txt"
+        // ファイルのディレクトリから検索
+        let file_dir = Path::new(filename).parent().unwrap_or(Path::new("."));
+        ProjectConfig::find_and_load(file_dir)
     };
+    
+    println!("[Project Configuration]");
+    println!("Check file header: {}", config.diagnostics.check_file_header);
+    println!("Check function format: {}", config.diagnostics.check_function_format);
+    println!();
     
     lexer_sample(filename);
     parser_sample(filename);
-    diagnostics_sample(filename);
+    diagnostics_sample_with_config(filename, &config);
     formatter_sample(filename);
 }
 
@@ -202,6 +229,37 @@ fn diagnostics_sample(filename: &str) {
     let tu = parser.parse();
     
     let config = DiagnosticConfig::default();
+    let diagnostics = diagnose(&tu, &config);
+    
+    if diagnostics.is_empty() {
+        println!("No issues found.");
+    } else {
+        for diag in diagnostics {
+            let severity_str = match diag.severity {
+                DiagnosticSeverity::Error => "ERROR",
+                DiagnosticSeverity::Warning => "WARNING",
+                DiagnosticSeverity::Information => "INFO",
+                DiagnosticSeverity::Hint => "HINT",
+            };
+            println!("[{}] {}: {} (line {}, column {})", 
+                diag.code, 
+                severity_str, 
+                diag.message,
+                diag.span.start_line,
+                diag.span.start_column
+            );
+        }
+    }
+}
+
+fn diagnostics_sample_with_config(filename: &str, project_config: &ProjectConfig) {
+    println!("\n[Diagnostics Sample]");
+    let contents = fs::read_to_string(filename).unwrap();
+    let lx = Lexer::new(&contents);
+    let mut parser = Parser::new(lx);
+    let tu = parser.parse();
+    
+    let config = project_config.to_diagnostic_config();
     let diagnostics = diagnose(&tu, &config);
     
     if diagnostics.is_empty() {
