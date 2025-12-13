@@ -28,6 +28,13 @@ impl<'a> ExpressionParser<'a> {
         self
     }
     
+    /// パース終了時にcurrent_tokenをLexerに戻す
+    pub fn finish(self) {
+        if let Some(token) = self.current_token {
+            self.lexer.unget_token(token);
+        }
+    }
+    
     /// 名前が型名かどうかをチェック
     fn is_type_name(&self, name: &str) -> bool {
         // 型キーワードのチェック

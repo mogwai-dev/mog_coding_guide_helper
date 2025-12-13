@@ -7,58 +7,102 @@ use std::collections::HashMap;
 use crate::type_system::Type;
 
 /// typedef名と型情報を管理する型テーブル
+/// 
+/// スコープスタック構造を使用し、内側のスコープから外側のスコープへと
+/// 型名を検索できる。最初の要素がグローバルスコープ。
 #[derive(Debug, Clone)]
 pub struct TypeTable {
-    /// typedef名 -> 実際の型情報のマップ
-    types: HashMap<String, Type>,
+    /// スコープのスタック（最初の要素がグローバルスコープ）
+    /// 各スコープはtypedef名 -> 実際の型情報のマップ
+    scopes: Vec<HashMap<String, Type>>,
 }
 
 impl TypeTable {
-    /// 新しい型テーブルを作成
+    /// 新しい型テーブルを作成（グローバルスコープを持つ）
     pub fn new() -> Self {
         TypeTable {
-            types: HashMap::new(),
+            scopes: vec![HashMap::new()], // グローバルスコープ
         }
     }
 
-    /// typedef名と型情報を登録
+    /// 新しいスコープを開始
+    pub fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    /// 現在のスコープを終了
+    /// 
+    /// # Panics
+    /// グローバルスコープをpopしようとするとパニックする
+    pub fn pop_scope(&mut self) {
+        if self.scopes.len() <= 1 {
+            panic!("Cannot pop global scope");
+        }
+        self.scopes.pop();
+    }
+
+    /// 現在のスコープのネストレベルを取得（0 = グローバル）
+    pub fn scope_depth(&self) -> usize {
+        self.scopes.len() - 1
+    }
+
+    /// typedef名と型情報を現在のスコープに登録
     pub fn register_type(&mut self, type_name: String, type_info: Type) {
-        self.types.insert(type_name, type_info);
+        if let Some(current_scope) = self.scopes.last_mut() {
+            current_scope.insert(type_name, type_info);
+        }
     }
 
     /// 名前が型名（typedef）かどうかを確認
+    /// 最内スコープから外側のスコープへと検索
     pub fn is_type_name(&self, name: &str) -> bool {
-        self.types.contains_key(name)
+        self.scopes.iter().rev().any(|scope| scope.contains_key(name))
     }
     
     /// typedef名から実際の型情報を取得
+    /// 最内スコープから外側のスコープへと検索
     pub fn get_type_info(&self, name: &str) -> Option<&Type> {
-        self.types.get(name)
+        self.scopes.iter().rev()
+            .find_map(|scope| scope.get(name))
     }
 
-    /// 型名を削除（スコープ管理用）
+    /// 型名を現在のスコープから削除
     pub fn remove_type(&mut self, name: &str) {
-        self.types.remove(name);
+        if let Some(current_scope) = self.scopes.last_mut() {
+            current_scope.remove(name);
+        }
     }
 
-    /// すべての型名をクリア
+    /// すべてのスコープの型名をクリアし、グローバルスコープのみに戻す
     pub fn clear(&mut self) {
-        self.types.clear();
+        self.scopes.clear();
+        self.scopes.push(HashMap::new());
     }
 
-    /// 登録されている型名の数を取得
+    /// 全スコープを含めた登録されている型名の総数を取得
     pub fn len(&self) -> usize {
-        self.types.len()
+        self.scopes.iter().map(|scope| scope.len()).sum()
     }
 
-    /// 型テーブルが空かどうかを確認
+    /// 型テーブルが空かどうかを確認（全スコープ）
     pub fn is_empty(&self) -> bool {
-        self.types.is_empty()
+        self.scopes.iter().all(|scope| scope.is_empty())
     }
 
-    /// すべての型名を取得
+    /// すべてのスコープから型名を取得（重複を除く）
     pub fn get_all_types(&self) -> Vec<String> {
-        self.types.keys().cloned().collect()
+        let mut types = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        
+        // 内側から外側へ検索し、最初に見つかった型名を採用
+        for scope in self.scopes.iter().rev() {
+            for name in scope.keys() {
+                if seen.insert(name.clone()) {
+                    types.push(name.clone());
+                }
+            }
+        }
+        types
     }
 }
 

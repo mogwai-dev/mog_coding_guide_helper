@@ -11,6 +11,7 @@ pub struct Lexer {
     pub line: usize,
     now: Option<(usize, char)>,
     peeked: Option<(usize, char)>,
+    next_token_buffer: Option<Token>,
 }
 
 // Lexer の実装
@@ -32,6 +33,7 @@ impl Lexer {
             line: 0,
             now: None,
             peeked: None,
+            next_token_buffer: None,
         };
         // peeked に最初の文字を入れる
         lx.peeked = lx.char_offsets.next();
@@ -62,6 +64,11 @@ impl Lexer {
             "struct" => Some(Token::Struct(StructToken { span })),
             "enum" => Some(Token::Enum(EnumToken { span })),
             "union" => Some(Token::Union(UnionToken { span })),
+            "return" => Some(Token::Return(ReturnToken { span })),
+            "if" => Some(Token::IfKeyword(IfKeywordToken { span })),
+            "else" => Some(Token::ElseKeyword(ElseKeywordToken { span })),
+            "while" => Some(Token::While(WhileToken { span })),
+            "for" => Some(Token::For(ForToken { span })),
             _ => Some(Token::Ident(IdentToken {
                 span,
                 name: self.input[byte_idx_start..byte_idx_end].to_string(),
@@ -97,8 +104,29 @@ impl Lexer {
         self.cur
     }
 
-    // トークンを一つ読み取る
+    /// 次のトークンを先読みする（消費しない）
+    pub fn peek_token(&mut self) -> Option<Token> {
+        if self.next_token_buffer.is_none() {
+            self.next_token_buffer = self.next_token_internal();
+        }
+        self.next_token_buffer.clone()
+    }
+
+    /// トークンをバッファに戻す（ExpressionParser等で使用）
+    pub fn unget_token(&mut self, token: Token) {
+        self.next_token_buffer = Some(token);
+    }
+
+    /// トークンを一つ読み取る（消費する）
     pub fn next_token(&mut self) -> Option<Token> {
+        if let Some(token) = self.next_token_buffer.take() {
+            return Some(token);
+        }
+        self.next_token_internal()
+    }
+
+    // 内部トークン読み取りメソッド（バッファを使わない生の読み取り）
+    fn next_token_internal(&mut self) -> Option<Token> {
         // 初回呼び出し時に now を初期化
         if self.now.is_none() && self.peeked.is_some() {
             self.next_char();

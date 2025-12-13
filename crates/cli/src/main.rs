@@ -95,6 +95,21 @@ fn lexer_sample(filename: &str) {
             Token::RightParen(RightParenToken { span }) => {
                 println!("RightParen from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
             },
+            Token::Return(ReturnToken { span }) => {
+                println!("Return from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
+            Token::IfKeyword(IfKeywordToken { span }) => {
+                println!("IfKeyword from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
+            Token::ElseKeyword(ElseKeywordToken { span }) => {
+                println!("ElseKeyword from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
+            Token::While(WhileToken { span }) => {
+                println!("While from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
+            Token::For(ForToken { span }) => {
+                println!("For from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);
+            },
             Token::Ifdef(IfdefToken { span }) | Token::Ifndef(IfndefToken { span }) | Token::If(IfToken { span }) |
             Token::Elif(ElifToken { span }) | Token::Else(ElseToken { span }) | Token::Endif(EndifToken { span }) => {
                 println!("Conditional directive from ({}, {}) to ({}, {}): {:?}", span.start_line, span.start_column, span.end_line, span.end_column, &contents[span.byte_start_idx..span.byte_end_idx]);

@@ -1,6 +1,59 @@
 use crate::span::Span;
 use crate::trivia::Trivia;
 use crate::type_system::Type;
+use crate::expression::Expression;
+
+/// ステートメント（文）
+#[derive(Debug, Clone)]
+pub enum Statement {
+    /// 変数宣言文
+    VarDecl {
+        var_type: Option<Type>,
+        var_name: String,
+        initializer: Option<Expression>,
+        span: Span,
+    },
+    /// 式文（式の後にセミコロン）
+    Expression {
+        expr: Expression,
+        span: Span,
+    },
+    /// return文
+    Return {
+        value: Option<Expression>,
+        span: Span,
+    },
+    /// if文
+    If {
+        condition: Expression,
+        then_block: Vec<Statement>,
+        else_block: Option<Vec<Statement>>,
+        span: Span,
+    },
+    /// while文
+    While {
+        condition: Expression,
+        body: Vec<Statement>,
+        span: Span,
+    },
+    /// for文
+    For {
+        init: Option<Box<Statement>>,
+        condition: Option<Expression>,
+        update: Option<Expression>,
+        body: Vec<Statement>,
+        span: Span,
+    },
+    /// ブロック文 { ... }
+    Block {
+        statements: Vec<Statement>,
+        span: Span,
+    },
+    /// 空文（セミコロンのみ）
+    Empty {
+        span: Span,
+    },
+}
 
 /// struct のメンバー情報
 #[derive(Debug, Clone)]
@@ -52,6 +105,7 @@ pub enum Item {
     ConditionalBlock { 
         directive_type: String,
         condition: String,
+        condition_result: bool,  // 条件評価結果
         items: Vec<Item>,
         start_span: Span,
         end_span: Span,
@@ -103,6 +157,7 @@ pub enum Item {
         function_name: String,
         parameters: String,
         storage_class: Option<String>,
+        body: Option<Vec<Statement>>,  // 関数本体（定義の場合のみ）
         trivia: Trivia,
     },
 }

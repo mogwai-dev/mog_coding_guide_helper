@@ -255,14 +255,14 @@
 # 型システム強化（2025年12月13日実装）
 
 ## Phase 1: TypeTable構造改善
-2025/01/XX 完了
+2025/12/13 完了
 ・TypeTable を HashMap<String, String> → HashMap<String, Type> に変更
 ・BaseType を型構造に適用（Int, Unsigned, Pointer等）
 ・Type::to_string() 実装
 ・169 テスト成功
 
 ## Phase 2: 複雑な typedef サポート
-2025/01/XX 完了
+2025/12/13 完了
 ・関数ポインタ型の typedef 対応
 ・配列型の typedef 対応
 ・parse_type_and_declarator() 実装
@@ -270,19 +270,27 @@
 ・7 新規テスト追加（176 テスト成功）
 
 ## Phase 3: struct/union/enum キャストサポート
-2025/01/XX 完了
+2025/12/13 完了
 ・BaseType に Struct(Option<String>), Union(Option<String>), Enum(Option<String>) 追加
 ・parse_type() で struct/union/enum キーワード認識
 ・parse_type_and_declarator() で名前付き struct/union/enum のみ許可（匿名型は失敗してフォールバック）
 ・ExpressionParser でのキャスト式認識拡張
 ・8 新規テスト追加（184 テスト成功）
 ・`(struct Point) x`, `(union Data) y`, `(enum Color) z` 形式のキャストに対応
+・匿名enum typedef登録バグ修正（"RED"→"Color"）
 
-## Phase 4: スコープ管理（未実装・オプション）
-### 優先度: 低
-・TypeTable にスコープスタック機能追加
-・ブロックスコープでの typedef 対応
-・関数スコープでの型名の分離管理
+## Phase 4: スコープ管理
+2025/12/13 完了
+・TypeTable にスコープスタック機能追加（Vec<HashMap<String, Type>>）
+・push_scope/pop_scope メソッド実装
+・is_type_name/get_type_info で最内スコープから外側へ検索
+・scope_depth() メソッドでスコープレベル取得
+・10 新規テスト追加（194 テスト成功）
+・グローバルスコープ、スコープ分離、シャドーイング、スコープ深度管理
+
+### 注意事項
+・現在の実装では関数内ブロックは解析スキップされるため、関数内typedefは登録されない
+・将来ブロック内解析を実装すれば、スコープ管理が完全に機能する
 
 ## 今後の拡張
 ### 完全な型情報の管理
@@ -290,4 +298,5 @@
 ・メンバ情報の管理（struct内のフィールド、enum値等）
 ・Function型とArray型の完全なType表現
 ・複雑な宣言子の完全解析
+・関数内ブロック解析の実装
 

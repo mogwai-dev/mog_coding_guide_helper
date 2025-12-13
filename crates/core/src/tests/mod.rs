@@ -25,3 +25,4 @@ mod expression_typedef_cast_tests;
 mod type_table_tests;
 mod typedef_complex_tests;
 mod struct_cast_tests;
+mod scope_tests;

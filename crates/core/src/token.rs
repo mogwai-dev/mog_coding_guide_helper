@@ -306,6 +306,31 @@ pub struct RightParenToken {
     pub span: Span,
 }
 
+#[derive(Debug, Clone)]
+pub struct ReturnToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct IfKeywordToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ElseKeywordToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct WhileToken {
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ForToken {
+    pub span: Span,
+}
+
 // 条件コンパイルディレクティブトークン
 #[derive(Debug, Clone)]
 pub struct IfdefToken {
@@ -429,5 +454,92 @@ pub enum Token {
     RightBrace(RightBraceToken),
     LeftParen(LeftParenToken),
     RightParen(RightParenToken),
+    Return(ReturnToken),
+    IfKeyword(IfKeywordToken),
+    ElseKeyword(ElseKeywordToken),
+    While(WhileToken),
+    For(ForToken),
+}
+
+impl Token {
+    /// トークンのスパン情報を取得
+    pub fn span(&self) -> Span {
+        match self {
+            Token::BlockComment(t) => t.span.clone(),
+            Token::LineComment(t) => t.span.clone(),
+            Token::Include(t) => t.span.clone(),
+            Token::Define(t) => t.span.clone(),
+            Token::Ifdef(t) => t.span.clone(),
+            Token::Ifndef(t) => t.span.clone(),
+            Token::If(t) => t.span.clone(),
+            Token::Elif(t) => t.span.clone(),
+            Token::Else(t) => t.span.clone(),
+            Token::Endif(t) => t.span.clone(),
+            Token::Semicolon(t) => t.span.clone(),
+            Token::Equal(t) => t.span.clone(),
+            Token::Asterisk(t) => t.span.clone(),
+            Token::NumberLiteral(t) => t.span.clone(),
+            Token::FloatLiteral(t) => t.span.clone(),
+            Token::Plus(t) => t.span.clone(),
+            Token::Minus(t) => t.span.clone(),
+            Token::Slash(t) => t.span.clone(),
+            Token::Percent(t) => t.span.clone(),
+            Token::EqualEqual(t) => t.span.clone(),
+            Token::NotEqual(t) => t.span.clone(),
+            Token::LessThan(t) => t.span.clone(),
+            Token::LessThanOrEqual(t) => t.span.clone(),
+            Token::GreaterThan(t) => t.span.clone(),
+            Token::GreaterThanOrEqual(t) => t.span.clone(),
+            Token::Ampersand(t) => t.span.clone(),
+            Token::AmpersandAmpersand(t) => t.span.clone(),
+            Token::Pipe(t) => t.span.clone(),
+            Token::PipePipe(t) => t.span.clone(),
+            Token::Caret(t) => t.span.clone(),
+            Token::Tilde(t) => t.span.clone(),
+            Token::Exclamation(t) => t.span.clone(),
+            Token::LeftShift(t) => t.span.clone(),
+            Token::RightShift(t) => t.span.clone(),
+            Token::LeftBracket(t) => t.span.clone(),
+            Token::RightBracket(t) => t.span.clone(),
+            Token::Question(t) => t.span.clone(),
+            Token::Colon(t) => t.span.clone(),
+            Token::Comma(t) => t.span.clone(),
+            Token::Dot(t) => t.span.clone(),
+            Token::Arrow(t) => t.span.clone(),
+            Token::PlusPlus(t) => t.span.clone(),
+            Token::MinusMinus(t) => t.span.clone(),
+            Token::Ident(t) => t.span.clone(),
+            Token::Auto(t) => t.span.clone(),
+            Token::Register(t) => t.span.clone(),
+            Token::Static(t) => t.span.clone(),
+            Token::Extern(t) => t.span.clone(),
+            Token::Typedef(t) => t.span.clone(),
+            Token::Const(t) => t.span.clone(),
+            Token::Volatile(t) => t.span.clone(),
+            Token::Restrict(t) => t.span.clone(),
+            Token::Atomic(t) => t.span.clone(),
+            Token::Int(t) => t.span.clone(),
+            Token::Char(t) => t.span.clone(),
+            Token::Float(t) => t.span.clone(),
+            Token::Double(t) => t.span.clone(),
+            Token::Void(t) => t.span.clone(),
+            Token::Long(t) => t.span.clone(),
+            Token::Short(t) => t.span.clone(),
+            Token::Signed(t) => t.span.clone(),
+            Token::Unsigned(t) => t.span.clone(),
+            Token::Struct(t) => t.span.clone(),
+            Token::Enum(t) => t.span.clone(),
+            Token::Union(t) => t.span.clone(),
+            Token::LeftBrace(t) => t.span.clone(),
+            Token::RightBrace(t) => t.span.clone(),
+            Token::LeftParen(t) => t.span.clone(),
+            Token::RightParen(t) => t.span.clone(),
+            Token::Return(t) => t.span.clone(),
+            Token::IfKeyword(t) => t.span.clone(),
+            Token::ElseKeyword(t) => t.span.clone(),
+            Token::While(t) => t.span.clone(),
+            Token::For(t) => t.span.clone(),
+        }
+    }
 }
 

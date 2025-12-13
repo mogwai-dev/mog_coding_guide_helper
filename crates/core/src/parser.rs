@@ -5,6 +5,7 @@ use crate::span::Span;
 use crate::trivia::{Trivia, Comment};
 use crate::type_system::{BaseType, Type, TypeQualifier};
 use crate::type_table::TypeTable;
+use std::collections::HashMap;
 
 // パース中のコンテキスト
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +32,7 @@ pub struct Parser {
     pub lexer: Lexer,
     pending_comments: Vec<Comment>,  // 次のItemに付与する予定のコメント
     type_table: TypeTable,           // typedef名を管理
+    defined_macros: HashMap<String, String>,  // #define で定義されたマクロ
 }
 
 impl Parser {
@@ -39,6 +41,7 @@ impl Parser {
             lexer,
             pending_comments: Vec::new(),
             type_table: TypeTable::new(),
+            defined_macros: HashMap::new(),
         }
     }
 
@@ -83,6 +86,8 @@ impl Parser {
                 Token::Define(DefineToken { span, macro_name, macro_value }) => {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
                     let trivia = self.take_trivia();
+                    // マクロを登録
+                    self.defined_macros.insert(macro_name.clone(), macro_value.clone());
                     items.push(Item::Define { span, text, macro_name, macro_value, trivia });
                 },
                 // Stage 1: 条件コンパイルブロック
@@ -139,6 +144,7 @@ impl Parser {
                     let mut var_name = String::new();
                     let mut has_initializer = false;
                     let mut is_function = false;
+                    let mut has_function_body = false;
                     let mut function_name = String::new();
                     let mut function_name_start = 0;
                     let mut params_start_byte = 0;
@@ -176,7 +182,10 @@ impl Parser {
                                 }
                             },
                             Some(Token::LeftBrace(..)) if is_function => {
-                                // 関数ブロックの開始 - 中身を読み飛ばす
+                                // 関数本体の開始
+                                has_function_body = true;
+                                // LeftBraceはすでにnext_token()で消費済み
+                                // 関数本体全体をスキップ
                                 let mut brace_depth = 1;
                                 loop {
                                     match self.lexer.next_token() {
@@ -255,6 +264,43 @@ impl Parser {
                         
                         let parameters = self.lexer.input[params_start_byte..params_end_byte].to_string();
                         
+                        // 関数本体があるかチェック
+                        let body = if has_function_body {
+                            // textから関数本体部分を抽出して再解析
+                            // text全体から{ }を見つけて、その中を解析
+                            let full_text = &self.lexer.input[start_byte..end_byte];
+                            if let Some(brace_start) = full_text.find('{') {
+                                if let Some(brace_end) = full_text.rfind('}') {
+                                    let body_text = &full_text[brace_start+1..brace_end];
+                                    // 新しいlexerとparserでbody_textを解析
+                                    let body_lexer = Lexer::new(body_text);
+                                    let mut body_parser = Parser::new(body_lexer);
+                                    // body_textは{}の中身なので、直接ステートメントを解析
+                                    let mut statements = Vec::new();
+                                    body_parser.type_table.push_scope();
+                                    loop {
+                                        if body_parser.lexer.peek_token().is_none() {
+                                            break;
+                                        }
+                                        if let Some(stmt) = body_parser.parse_statement() {
+                                            statements.push(stmt);
+                                        } else {
+                                            // 解析できない場合はスキップ
+                                            body_parser.lexer.next_token();
+                                        }
+                                    }
+                                    body_parser.type_table.pop_scope();
+                                    Some(statements)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        
                         let trivia = self.take_trivia();
                         items.push(Item::FunctionDecl {
                             span: final_span,
@@ -263,6 +309,7 @@ impl Parser {
                             function_name,
                             parameters,
                             storage_class,
+                            body,
                             trivia,
                         });
                     } else {
@@ -1003,6 +1050,9 @@ impl Parser {
     fn parse_conditional_block(&mut self, context: ParseContext, start_span: Span, directive_type: &str) -> Item {
         let condition = self.extract_condition(&start_span);
         
+        // 条件を評価
+        let condition_result = self.evaluate_condition(directive_type, &condition);
+        
         // このブロック（#ifdef/#ifndef/#if）内のアイテムを解析
         let (mut block_items, stop_reason) = self.parse_items(context, true);
         
@@ -1023,7 +1073,8 @@ impl Parser {
                 
                 return Item::ConditionalBlock {
                     directive_type: directive_type.to_string(),
-                    condition,
+                    condition: condition.clone(),
+                    condition_result,
                     items: block_items,
                     start_span,
                     end_span,
@@ -1044,6 +1095,7 @@ impl Parser {
                 let else_block = Item::ConditionalBlock {
                     directive_type: "else".to_string(),
                     condition: String::new(),
+                    condition_result: !condition_result,  // elseはifの逆
                     items: else_items,
                     start_span: span.clone(),
                     end_span: end_span.clone(),
@@ -1055,6 +1107,7 @@ impl Parser {
                 block_items.push(Item::ConditionalBlock {
                     directive_type: "endif".to_string(),
                     condition: String::new(),
+                    condition_result: true,  // endifは常にtrue
                     items: Vec::new(),
                     start_span: end_span.clone(),
                     end_span: end_span.clone(),
@@ -1063,7 +1116,8 @@ impl Parser {
                 
                 return Item::ConditionalBlock {
                     directive_type: directive_type.to_string(),
-                    condition,
+                    condition: condition.clone(),
+                    condition_result,
                     items: block_items,
                     start_span,
                     end_span,
@@ -1078,6 +1132,7 @@ impl Parser {
                 block_items.push(Item::ConditionalBlock {
                     directive_type: "endif".to_string(),
                     condition: String::new(),
+                    condition_result: true,  // endifは常にtrue
                     items: Vec::new(),
                     start_span: end_span.clone(),
                     end_span: end_span.clone(),
@@ -1086,7 +1141,8 @@ impl Parser {
                 
                 return Item::ConditionalBlock {
                     directive_type: directive_type.to_string(),
-                    condition,
+                    condition: condition.clone(),
+                    condition_result,
                     items: block_items,
                     start_span,
                     end_span,
@@ -1097,7 +1153,8 @@ impl Parser {
                 // EOF など、#endif がない場合
                 return Item::ConditionalBlock {
                     directive_type: directive_type.to_string(),
-                    condition,
+                    condition: condition.clone(),
+                    condition_result,
                     items: block_items,
                     start_span: start_span.clone(),
                     end_span: start_span,
@@ -1125,6 +1182,118 @@ impl Parser {
             String::new()
         }
     }
+
+    // 条件式を評価（#ifdef, #ifndef, #if）
+    fn evaluate_condition(&self, directive_type: &str, condition: &str) -> bool {
+        match directive_type {
+            "ifdef" => {
+                // マクロが定義されていればtrue
+                self.defined_macros.contains_key(condition)
+            },
+            "ifndef" => {
+                // マクロが定義されていなければtrue
+                !self.defined_macros.contains_key(condition)
+            },
+            "if" | "elif" => {
+                // 簡易的な式評価
+                self.evaluate_if_expression(condition)
+            },
+            _ => true, // 不明なディレクティブはtrueとして扱う
+        }
+    }
+
+    // #if の式を評価（簡易実装）
+    fn evaluate_if_expression(&self, expr: &str) -> bool {
+        let expr = expr.trim();
+        
+        // 論理演算子 && と || のサポート（最優先で処理）
+        if expr.contains("&&") {
+            let parts: Vec<&str> = expr.split("&&").collect();
+            return parts.iter().all(|p| self.evaluate_if_expression(p.trim()));
+        }
+        
+        if expr.contains("||") {
+            let parts: Vec<&str> = expr.split("||").collect();
+            return parts.iter().any(|p| self.evaluate_if_expression(p.trim()));
+        }
+        
+        // defined(MACRO) のパターンをチェック
+        if let Some(rest) = expr.strip_prefix("defined(") {
+            if let Some(macro_name) = rest.strip_suffix(')') {
+                return self.defined_macros.contains_key(macro_name.trim());
+            }
+        }
+        
+        // defined MACRO のパターンをチェック
+        if let Some(macro_name) = expr.strip_prefix("defined ") {
+            return self.defined_macros.contains_key(macro_name.trim());
+        }
+        
+        // !defined(MACRO) のパターン
+        if let Some(rest) = expr.strip_prefix("!defined(") {
+            if let Some(macro_name) = rest.strip_suffix(')') {
+                return !self.defined_macros.contains_key(macro_name.trim());
+            }
+        }
+        
+        // 数値リテラルの評価
+        if let Ok(num) = expr.parse::<i64>() {
+            return num != 0;
+        }
+        
+        // マクロ名の展開と評価
+        if let Some(value) = self.defined_macros.get(expr) {
+            if let Ok(num) = value.parse::<i64>() {
+                return num != 0;
+            }
+            return !value.is_empty();
+        }
+        
+        // 比較演算子のサポート（簡易版）
+        for op in &["==", "!=", ">=", "<=", ">", "<"] {
+            if expr.contains(op) {
+                let parts: Vec<&str> = expr.split(op).collect();
+                if parts.len() == 2 {
+                    let left = self.evaluate_macro_value(parts[0].trim());
+                    let right = self.evaluate_macro_value(parts[1].trim());
+                    
+                    return match *op {
+                        "==" => left == right,
+                        "!=" => left != right,
+                        ">" => left > right,
+                        "<" => left < right,
+                        ">=" => left >= right,
+                        "<=" => left <= right,
+                        _ => false,
+                    };
+                }
+            }
+        }
+        
+        // デフォルトはfalse（未定義のマクロ）
+        false
+    }
+
+    // マクロ値を数値として評価
+    fn evaluate_macro_value(&self, expr: &str) -> i64 {
+        let expr = expr.trim();
+        
+        // 数値リテラル
+        if let Ok(num) = expr.parse::<i64>() {
+            return num;
+        }
+        
+        // マクロ名の展開
+        if let Some(value) = self.defined_macros.get(expr) {
+            if let Ok(num) = value.parse::<i64>() {
+                return num;
+            }
+        }
+        
+        // 評価できない場合は0
+        0
+    }
+
     /// pending_commentsを取り出してTriviaを作成
     fn take_trivia(&mut self) -> Trivia {
         let leading = std::mem::take(&mut self.pending_comments);
@@ -1233,6 +1402,11 @@ impl Parser {
             Token::Arrow(t) => t.span.clone(),
             Token::PlusPlus(t) => t.span.clone(),
             Token::MinusMinus(t) => t.span.clone(),
+            Token::Return(t) => t.span.clone(),
+            Token::IfKeyword(t) => t.span.clone(),
+            Token::ElseKeyword(t) => t.span.clone(),
+            Token::While(t) => t.span.clone(),
+            Token::For(t) => t.span.clone(),
         }
     }
 
@@ -1345,14 +1519,16 @@ impl Parser {
         let mut pointer_layers = Vec::new();
         
         'pointer_loop: loop {
-            // Try to get next token - if there's no more tokens, we're done
-            let token = match self.lexer.next_token() {
+            // peek_token()を使用して、ポインタでない場合はトークンを消費しない
+            let token = match self.lexer.peek_token() {
                 Some(t) => t,
                 None => break,
             };
 
             match token {
                 Token::Asterisk(ast_token) => {
+                    // *が確認できたので、ここでnext_token()で消費する
+                    self.lexer.next_token();
                     let asterisk_span = ast_token.span.clone();
                     end_span = asterisk_span.clone();
                     let mut qualifiers = Vec::new();
@@ -1461,7 +1637,6 @@ impl Parser {
                             }
                             _ => {
                                 // Not a qualifier or asterisk - save this layer and exit
-                                println!("DEBUG parse_type: Stopping pointer parsing at token: {:?}", next_token);
                                 pointer_layers.push(crate::type_system::PointerLayer::with_qualifiers(
                                     qualifiers,
                                     asterisk_span,
@@ -1799,6 +1974,993 @@ impl Parser {
     /// 型テーブルへの参照を取得（ExpressionParserで使用）
     pub fn get_type_table(&self) -> &TypeTable {
         &self.type_table
+    }
+
+    /// ブロック文 { ... } を解析
+    /// LeftBraceトークンは既に消費されている前提
+    pub fn parse_block(&mut self) -> Vec<crate::ast::Statement> {
+        use crate::ast::Statement;
+        
+        let mut statements = Vec::new();
+        self.type_table.push_scope();  // ブロック開始でスコープ追加
+        
+        loop {
+            match self.lexer.peek_token() {
+                Some(Token::RightBrace(_)) => {
+                    self.lexer.next_token(); // } を消費
+                    break;
+                }
+                None => break,
+                _ => {
+                    if let Some(stmt) = self.parse_statement() {
+                        statements.push(stmt);
+                    } else {
+                        // 解析できない場合はスキップ
+                        self.lexer.next_token();
+                    }
+                }
+            }
+        }
+        
+        self.type_table.pop_scope();  // ブロック終了でスコープ削除
+        statements
+    }
+
+    /// 1つのステートメントを解析（空文、ブロック文、式文、変数宣言文、return文をサポート）
+    pub fn parse_statement(&mut self) -> Option<crate::ast::Statement> {
+        use crate::ast::Statement;
+        
+        match self.lexer.peek_token()? {
+            Token::Semicolon(token) => {
+                let span = token.span.clone();
+                self.lexer.next_token();
+                Some(Statement::Empty { span })
+            }
+            Token::LeftBrace(token) => {
+                let start_span = token.span.clone();
+                self.lexer.next_token(); // { を消費
+                let statements = self.parse_block();
+                Some(Statement::Block {
+                    statements,
+                    span: start_span,
+                })
+            }
+            Token::Return(_) => {
+                self.parse_return_statement()
+            }
+            Token::IfKeyword(_) => {
+                self.parse_if_statement()
+            }
+            Token::While(_) => {
+                self.parse_while_statement()
+            }
+            Token::For(_) => {
+                self.parse_for_statement()
+            }
+            // 型指定子で始まる場合は変数宣言として扱う
+            Token::Int(_) | Token::Float(_) | Token::Double(_) | Token::Char(_) | 
+            Token::Void(_) | Token::Long(_) | Token::Short(_) | Token::Signed(_) | 
+            Token::Unsigned(_) | Token::Struct(_) | Token::Union(_) | Token::Enum(_) |
+            Token::Const(_) | Token::Volatile(_) => {
+                self.parse_var_decl_statement()
+            }
+            Token::Ident(ident_token) => {
+                let name = ident_token.name.clone();
+                // typedefされた型名で始まる場合は変数宣言
+                if self.type_table.is_type_name(&name) {
+                    self.parse_var_decl_statement()
+                } else {
+                    // それ以外は式文として扱う
+                    self.parse_expression_statement()
+                }
+            }
+            _ => {
+                // それ以外は式文として扱う
+                self.parse_expression_statement()
+            }
+        }
+    }
+
+    /// 式文を解析（式; のパターン）
+    fn parse_expression_statement(&mut self) -> Option<crate::ast::Statement> {
+        use crate::ast::Statement;
+        use crate::expression_parser::ExpressionParser;
+        
+        let mut expr_parser = ExpressionParser::new(&mut self.lexer);
+        let expr = expr_parser.parse_expression();
+        expr_parser.finish();  // current_tokenをLexerに戻す
+        let expr = expr?;
+        
+        let span = expr.span().clone();
+        
+        // セミコロンを消費（オプション）
+        if let Some(Token::Semicolon(_)) = self.lexer.peek_token() {
+            self.lexer.next_token();
+        }
+        
+        Some(Statement::Expression { expr, span })
+    }
+
+    /// return文を解析（return; または return 式;）
+    fn parse_return_statement(&mut self) -> Option<crate::ast::Statement> {
+        use crate::ast::Statement;
+        use crate::expression_parser::ExpressionParser;
+        
+        // returnトークンを消費
+        let return_token = self.lexer.next_token()?;
+        let start_span = if let Token::Return(t) = return_token {
+            t.span
+        } else {
+            return None;
+        };
+        
+        // セミコロンまでの内容を式として解析
+        let value = match self.lexer.peek_token() {
+            Some(Token::Semicolon(_)) => None,
+            _ => {
+                let mut expr_parser = ExpressionParser::new(&mut self.lexer);
+                let expr = expr_parser.parse_expression();
+                expr_parser.finish();  // current_tokenをLexerに戻す
+                expr
+            }
+        };
+        
+        // セミコロンを消費（オプション）
+        if let Some(Token::Semicolon(_)) = self.lexer.peek_token() {
+            self.lexer.next_token();
+        }
+        
+        Some(Statement::Return {
+            value,
+            span: start_span,
+        })
+    }
+
+    /// 変数宣言文を解析（型 変数名; または 型 変数名 = 式;）
+    fn parse_var_decl_statement(&mut self) -> Option<crate::ast::Statement> {
+        use crate::ast::Statement;
+        use crate::expression_parser::ExpressionParser;
+        
+        let start_span = self.lexer.peek_token()?.span();
+        
+        // 型を解析
+        let var_type = self.parse_type()?;
+        
+        // 変数名を取得
+        let var_name = if let Some(Token::Ident(ident_token)) = self.lexer.next_token() {
+            ident_token.name
+        } else {
+            return None;
+        };
+        
+        // 初期化式があるか確認
+        let initializer = if let Some(Token::Equal(_)) = self.lexer.peek_token() {
+            self.lexer.next_token(); // = を消費
+            let mut expr_parser = ExpressionParser::new(&mut self.lexer);
+            let expr = expr_parser.parse_expression();
+            expr_parser.finish();  // current_tokenをLexerに戻す
+            expr
+        } else {
+            None
+        };
+        
+        // セミコロンを消費（オプション）
+        if let Some(Token::Semicolon(_)) = self.lexer.peek_token() {
+            self.lexer.next_token();
+        }
+        
+        Some(Statement::VarDecl {
+            var_type: Some(var_type),
+            var_name,
+            initializer,
+            span: start_span,
+        })
+    }
+
+    /// if文を解析（if (condition) { statements } else { statements }）
+    fn parse_if_statement(&mut self) -> Option<crate::ast::Statement> {
+        use crate::ast::Statement;
+        use crate::expression_parser::ExpressionParser;
+        
+        // if トークンを消費
+        let start_span = if let Some(Token::IfKeyword(token)) = self.lexer.next_token() {
+            token.span
+        } else {
+            return None;
+        };
+        
+        // ( を期待
+        if !matches!(self.lexer.next_token(), Some(Token::LeftParen(_))) {
+            return None;
+        }
+        
+        // 条件式を解析
+        let mut expr_parser = ExpressionParser::new(&mut self.lexer);
+        let condition = expr_parser.parse_expression();
+        expr_parser.finish();  // current_tokenをLexerに戻す
+        let condition = condition?;
+        
+        // ) を期待
+        if !matches!(self.lexer.next_token(), Some(Token::RightParen(_))) {
+            return None;
+        }
+        
+        // then ブロックを解析
+        let then_block = if matches!(self.lexer.peek_token(), Some(Token::LeftBrace(_))) {
+            self.lexer.next_token(); // { を消費
+            self.parse_block()
+        } else {
+            // ブロックではない場合、単一のステートメントを解析
+            if let Some(stmt) = self.parse_statement() {
+                vec![stmt]
+            } else {
+                Vec::new()
+            }
+        };
+        
+        // else 句があるかチェック
+        let else_block = if matches!(self.lexer.peek_token(), Some(Token::ElseKeyword(_))) {
+            self.lexer.next_token(); // else を消費
+            
+            if matches!(self.lexer.peek_token(), Some(Token::LeftBrace(_))) {
+                self.lexer.next_token(); // { を消費
+                Some(self.parse_block())
+            } else {
+                // ブロックではない場合、単一のステートメントを解析
+                if let Some(stmt) = self.parse_statement() {
+                    Some(vec![stmt])
+                } else {
+                    Some(Vec::new())
+                }
+            }
+        } else {
+            None
+        };
+        
+        Some(Statement::If {
+            condition,
+            then_block,
+            else_block,
+            span: start_span,
+        })
+    }
+
+    /// while文を解析（while (condition) { statements }）
+    fn parse_while_statement(&mut self) -> Option<crate::ast::Statement> {
+        use crate::ast::Statement;
+        use crate::expression_parser::ExpressionParser;
+        
+        // while トークンを消費
+        let start_span = if let Some(Token::While(token)) = self.lexer.next_token() {
+            token.span
+        } else {
+            return None;
+        };
+        
+        // ( を期待
+        if !matches!(self.lexer.next_token(), Some(Token::LeftParen(_))) {
+            return None;
+        }
+        
+        // 条件式を解析
+        let mut expr_parser = ExpressionParser::new(&mut self.lexer);
+        let condition = expr_parser.parse_expression();
+        expr_parser.finish();  // current_tokenをLexerに戻す
+        let condition = condition?;
+        
+        // ) を期待
+        if !matches!(self.lexer.next_token(), Some(Token::RightParen(_))) {
+            return None;
+        }
+        
+        // ボディブロックを解析
+        let body = if matches!(self.lexer.peek_token(), Some(Token::LeftBrace(_))) {
+            self.lexer.next_token(); // { を消費
+            self.parse_block()
+        } else {
+            // ブロックではない場合、単一のステートメントを解析
+            if let Some(stmt) = self.parse_statement() {
+                vec![stmt]
+            } else {
+                Vec::new()
+            }
+        };
+        
+        Some(Statement::While {
+            condition,
+            body,
+            span: start_span,
+        })
+    }
+
+    /// for文を解析（for (init; condition; update) { statements }）
+    fn parse_for_statement(&mut self) -> Option<crate::ast::Statement> {
+        use crate::ast::Statement;
+        use crate::expression_parser::ExpressionParser;
+        
+        // for トークンを消費
+        let start_span = if let Some(Token::For(token)) = self.lexer.next_token() {
+            token.span
+        } else {
+            return None;
+        };
+        
+        // ( を期待
+        if !matches!(self.lexer.next_token(), Some(Token::LeftParen(_))) {
+            return None;
+        }
+        
+        // init 部分を解析（セミコロンまで、または最初からセミコロンの場合は None）
+        let init = if matches!(self.lexer.peek_token(), Some(Token::Semicolon(_))) {
+            self.lexer.next_token(); // ; を消費
+            None
+        } else {
+            // 変数宣言か式文を解析
+            let stmt = self.parse_statement();
+            // セミコロンが消費されていない場合は消費する
+            if matches!(self.lexer.peek_token(), Some(Token::Semicolon(_))) {
+                self.lexer.next_token();
+            }
+            stmt.map(Box::new)
+        };
+        
+        // condition 部分を解析（セミコロンまで、または最初からセミコロンの場合は None）
+        let condition = if matches!(self.lexer.peek_token(), Some(Token::Semicolon(_))) {
+            self.lexer.next_token(); // ; を消費
+            None
+        } else {
+            let mut expr_parser = ExpressionParser::new(&mut self.lexer);
+            let expr = expr_parser.parse_expression();
+            expr_parser.finish();  // current_tokenをLexerに戻す
+            // セミコロンを消費
+            if matches!(self.lexer.peek_token(), Some(Token::Semicolon(_))) {
+                self.lexer.next_token();
+            }
+            expr
+        };
+        
+        // update 部分を解析（) まで、または最初から ) の場合は None）
+        let update = if matches!(self.lexer.peek_token(), Some(Token::RightParen(_))) {
+            None
+        } else {
+            let mut expr_parser = ExpressionParser::new(&mut self.lexer);
+            let expr = expr_parser.parse_expression();
+            expr_parser.finish();  // current_tokenをLexerに戻す
+            expr
+        };
+        
+        // ) を期待
+        if !matches!(self.lexer.next_token(), Some(Token::RightParen(_))) {
+            return None;
+        }
+        
+        // ボディブロックを解析
+        let body = if matches!(self.lexer.peek_token(), Some(Token::LeftBrace(_))) {
+            self.lexer.next_token(); // { を消費
+            self.parse_block()
+        } else {
+            // ブロックではない場合、単一のステートメントを解析
+            if let Some(stmt) = self.parse_statement() {
+                vec![stmt]
+            } else {
+                Vec::new()
+            }
+        };
+        
+        Some(Statement::For {
+            init,
+            condition,
+            update,
+            body,
+            span: start_span,
+        })
+    }
+}
+
+#[cfg(test)]
+mod statement_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_empty_statement() {
+        let input = ";";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::Empty { .. }) = stmt {
+            // Success
+        } else {
+            panic!("Expected Empty statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_empty_block() {
+        let input = "{}";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        // { を消費
+        parser.lexer.next_token();
+        let statements = parser.parse_block();
+        assert_eq!(statements.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_block_with_empty_statements() {
+        let input = "{;;;}";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        // { を消費
+        parser.lexer.next_token();
+        let statements = parser.parse_block();
+        assert_eq!(statements.len(), 3);
+        
+        for stmt in statements {
+            if let crate::ast::Statement::Empty { .. } = stmt {
+                // Success
+            } else {
+                panic!("Expected Empty statement");
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_blocks() {
+        let input = "{{;}}";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        // 外側の { を消費
+        parser.lexer.next_token();
+        let statements = parser.parse_block();
+        assert_eq!(statements.len(), 1);
+        
+        if let crate::ast::Statement::Block { statements: inner, .. } = &statements[0] {
+            assert_eq!(inner.len(), 1);
+            if let crate::ast::Statement::Empty { .. } = inner[0] {
+                // Success
+            } else {
+                panic!("Expected Empty statement in nested block");
+            }
+        } else {
+            panic!("Expected Block statement");
+        }
+    }
+
+    #[test]
+    fn test_scope_management_in_blocks() {
+        let input = "{}";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let initial_depth = parser.type_table.scope_depth();
+        
+        // { を消費
+        parser.lexer.next_token();
+        parser.parse_block();
+        
+        // ブロック終了後はスコープが元に戻っている
+        assert_eq!(parser.type_table.scope_depth(), initial_depth);
+    }
+
+    #[test]
+    fn test_parse_expression_statement() {
+        let input = "123;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::Expression { .. }) = stmt {
+            // Success
+        } else {
+            panic!("Expected Expression statement, got {:?}", stmt);
+        }
+    }
+
+    #[test]
+    fn test_parse_expression_statement_with_identifier() {
+        let input = "x;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::Expression { .. }) = stmt {
+            // Success
+        } else {
+            panic!("Expected Expression statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_block_with_expression_statements() {
+        let input = "{1; 2; 3;}";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        // { を消費
+        parser.lexer.next_token();
+        let statements = parser.parse_block();
+        assert_eq!(statements.len(), 3);
+        
+        for stmt in statements {
+            if let crate::ast::Statement::Expression { .. } = stmt {
+                // Success
+            } else {
+                panic!("Expected Expression statement");
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_var_decl_simple() {
+        let input = "int x;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::VarDecl { var_name, initializer, .. }) = stmt {
+            assert_eq!(var_name, "x");
+            assert!(initializer.is_none());
+        } else {
+            panic!("Expected VarDecl statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_var_decl_with_initializer() {
+        let input = "int x = 42;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::VarDecl { var_name, initializer, .. }) = stmt {
+            assert_eq!(var_name, "x");
+            assert!(initializer.is_some());
+        } else {
+            panic!("Expected VarDecl statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_block_with_var_decls() {
+        let input = "{int x; int y = 10;}";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        // { を消費
+        parser.lexer.next_token();
+        let statements = parser.parse_block();
+        assert_eq!(statements.len(), 2);
+        
+        for stmt in statements {
+            if let crate::ast::Statement::VarDecl { .. } = stmt {
+                // Success
+            } else {
+                panic!("Expected VarDecl statement");
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_mixed_statements() {
+        let input = "{int x; x; int y = 5; y;}";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        // { を消費
+        parser.lexer.next_token();
+        let statements = parser.parse_block();
+        assert_eq!(statements.len(), 4);
+        
+        // 順番: VarDecl, Expression, VarDecl, Expression
+        match &statements[0] {
+            crate::ast::Statement::VarDecl { .. } => {},
+            _ => panic!("Expected VarDecl at position 0"),
+        }
+        match &statements[1] {
+            crate::ast::Statement::Expression { .. } => {},
+            _ => panic!("Expected Expression at position 1"),
+        }
+        match &statements[2] {
+            crate::ast::Statement::VarDecl { .. } => {},
+            _ => panic!("Expected VarDecl at position 2"),
+        }
+        match &statements[3] {
+            crate::ast::Statement::Expression { .. } => {},
+            _ => panic!("Expected Expression at position 3"),
+        }
+    }
+
+    #[test]
+    fn test_parse_return_statement_empty() {
+        let input = "return;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::Return { value, .. }) = stmt {
+            assert!(value.is_none());
+        } else {
+            panic!("Expected Return statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_return_statement_with_value() {
+        let input = "return 42;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::Return { value, .. }) = stmt {
+            assert!(value.is_some());
+        } else {
+            panic!("Expected Return statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_block_with_return() {
+        let input = "{int x = 5; return x;}";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        // { を消費
+        parser.lexer.next_token();
+        let statements = parser.parse_block();
+        assert_eq!(statements.len(), 2);
+        
+        match &statements[0] {
+            crate::ast::Statement::VarDecl { .. } => {},
+            _ => panic!("Expected VarDecl at position 0"),
+        }
+        match &statements[1] {
+            crate::ast::Statement::Return { .. } => {},
+            _ => panic!("Expected Return at position 1"),
+        }
+    }
+
+    #[test]
+    fn test_parse_function_with_empty_body() {
+        let input = "int main() {}";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 1);
+        
+        if let crate::ast::Item::FunctionDecl { function_name, body, .. } = &tu.items[0] {
+            assert_eq!(function_name, "main");
+            assert!(body.is_some());
+            assert_eq!(body.as_ref().unwrap().len(), 0);
+        } else {
+            panic!("Expected FunctionDecl");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_with_statements() {
+        let input = "int add(int a, int b) { int result; return result; }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 1);
+        
+        if let crate::ast::Item::FunctionDecl { function_name, body, .. } = &tu.items[0] {
+            assert_eq!(function_name, "add");
+            assert!(body.is_some());
+            let statements = body.as_ref().unwrap();
+            assert_eq!(statements.len(), 2); // VarDecl, Return
+        } else {
+            panic!("Expected FunctionDecl");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_with_nested_scopes() {
+        let input = "void test() { int x; { int y; } }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 1);
+        
+        if let crate::ast::Item::FunctionDecl { body, .. } = &tu.items[0] {
+            assert!(body.is_some());
+            let statements = body.as_ref().unwrap();
+            assert_eq!(statements.len(), 2); // VarDecl, Block
+            
+            // 2番目がネストされたブロック
+            match &statements[1] {
+                crate::ast::Statement::Block { statements: nested, .. } => {
+                    assert_eq!(nested.len(), 1); // int y;
+                },
+                _ => panic!("Expected Block statement"),
+            }
+        } else {
+            panic!("Expected FunctionDecl");
+        }
+    }
+
+    #[test]
+    fn test_function_declaration_without_body() {
+        let input = "int add(int a, int b);";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 1);
+        
+        if let crate::ast::Item::FunctionDecl { function_name, body, .. } = &tu.items[0] {
+            assert_eq!(function_name, "add");
+            assert!(body.is_none()); // 宣言のみなのでbodyなし
+        } else {
+            panic!("Expected FunctionDecl");
+        }
+    }
+
+    #[test]
+    fn test_parse_if_statement() {
+        let input = "if (x) { return 1; }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::If { then_block, else_block, .. }) = stmt {
+            assert_eq!(then_block.len(), 1);
+            assert!(else_block.is_none());
+        } else {
+            panic!("Expected If statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_if_else_statement() {
+        let input = "if (x) { return 1; } else { return 0; }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::If { then_block, else_block, .. }) = stmt {
+            assert_eq!(then_block.len(), 1);
+            assert!(else_block.is_some());
+            assert_eq!(else_block.unwrap().len(), 1);
+        } else {
+            panic!("Expected If statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_while_statement() {
+        let input = "while (x) { return 1; }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::While { body, .. }) = stmt {
+            assert_eq!(body.len(), 1);
+        } else {
+            panic!("Expected While statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_for_statement_full() {
+        let input = "for (int i = 0; i; i) { return i; }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::For { init, condition, update, body, .. }) = stmt {
+            assert!(init.is_some());
+            assert!(condition.is_some());
+            assert!(update.is_some());
+            assert_eq!(body.len(), 1);
+        } else {
+            panic!("Expected For statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_for_statement_minimal() {
+        let input = "for (;;) { return 0; }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::For { init, condition, update, body, .. }) = stmt {
+            assert!(init.is_none());
+            assert!(condition.is_none());
+            assert!(update.is_none());
+            assert_eq!(body.len(), 1);
+        } else {
+            panic!("Expected For statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_control_flow() {
+        let input = "if (x) { while (y) { return 1; } }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let stmt = parser.parse_statement();
+        assert!(stmt.is_some());
+        
+        if let Some(crate::ast::Statement::If { then_block, .. }) = stmt {
+            assert_eq!(then_block.len(), 1);
+            if let crate::ast::Statement::While { body, .. } = &then_block[0] {
+                assert_eq!(body.len(), 1);
+            } else {
+                panic!("Expected While inside If");
+            }
+        } else {
+            panic!("Expected If statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_with_control_flow() {
+        let input = "int test() { if (x) return 1; else return 0; }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 1);
+        
+        if let crate::ast::Item::FunctionDecl { body, .. } = &tu.items[0] {
+            assert!(body.is_some());
+            let statements = body.as_ref().unwrap();
+            assert_eq!(statements.len(), 1);
+            
+            if let crate::ast::Statement::If { .. } = &statements[0] {
+                // OK
+            } else {
+                panic!("Expected If statement in function body");
+            }
+        } else {
+            panic!("Expected FunctionDecl");
+        }
+    }
+
+    #[test]
+    fn test_ifdef_evaluation_true() {
+        let input = "#define DEBUG\n#ifdef DEBUG\nint x;\n#endif";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 2); // #define と #ifdef ブロック
+        
+        if let crate::ast::Item::ConditionalBlock { condition_result, .. } = &tu.items[1] {
+            assert_eq!(*condition_result, true); // DEBUG is defined
+        } else {
+            panic!("Expected ConditionalBlock");
+        }
+    }
+
+    #[test]
+    fn test_ifdef_evaluation_false() {
+        let input = "#ifdef UNDEFINED\nint x;\n#endif";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 1); // #ifdef ブロックのみ
+        
+        if let crate::ast::Item::ConditionalBlock { condition_result, .. } = &tu.items[0] {
+            assert_eq!(*condition_result, false); // UNDEFINED is not defined
+        } else {
+            panic!("Expected ConditionalBlock");
+        }
+    }
+
+    #[test]
+    fn test_ifndef_evaluation() {
+        let input = "#ifndef UNDEFINED\nint x;\n#endif";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 1);
+        
+        if let crate::ast::Item::ConditionalBlock { condition_result, .. } = &tu.items[0] {
+            assert_eq!(*condition_result, true); // UNDEFINED is not defined
+        } else {
+            panic!("Expected ConditionalBlock");
+        }
+    }
+
+    #[test]
+    fn test_if_defined_evaluation() {
+        let input = "#define FLAG\n#if defined(FLAG)\nint x;\n#endif";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 2);
+        
+        if let crate::ast::Item::ConditionalBlock { condition_result, .. } = &tu.items[1] {
+            assert_eq!(*condition_result, true);
+        } else {
+            panic!("Expected ConditionalBlock");
+        }
+    }
+
+    #[test]
+    fn test_if_numeric_evaluation() {
+        let input = "#define VALUE 1\n#if VALUE\nint x;\n#endif";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 2);
+        
+        if let crate::ast::Item::ConditionalBlock { condition_result, .. } = &tu.items[1] {
+            assert_eq!(*condition_result, true); // VALUE == 1, non-zero is true
+        } else {
+            panic!("Expected ConditionalBlock");
+        }
+    }
+
+    #[test]
+    fn test_if_comparison_evaluation() {
+        let input = "#define VERSION 2\n#if VERSION >= 2\nint x;\n#endif";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 2);
+        
+        if let crate::ast::Item::ConditionalBlock { condition_result, .. } = &tu.items[1] {
+            assert_eq!(*condition_result, true); // VERSION >= 2 is true
+        } else {
+            panic!("Expected ConditionalBlock");
+        }
+    }
+
+    #[test]
+    fn test_if_logical_and_evaluation() {
+        let input = "#define A 1\n#define B 1\n#if defined(A) && defined(B)\nint x;\n#endif";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        
+        let tu = parser.parse();
+        assert_eq!(tu.items.len(), 3); // 2 defines + 1 conditional block
+        
+        if let crate::ast::Item::ConditionalBlock { condition_result, .. } = &tu.items[2] {
+            assert_eq!(*condition_result, true); // both defined
+        } else {
+            panic!("Expected ConditionalBlock");
+        }
     }
 }
 

@@ -130,3 +130,23 @@ pub enum UnaryOperator {
     PostIncrement,  // a++
     PostDecrement,  // a--
 }
+
+impl Expression {
+    /// 式のスパン情報を取得
+    pub fn span(&self) -> &Span {
+        match self {
+            Expression::IntLiteral { span, .. } => span,
+            Expression::FloatLiteral { span, .. } => span,
+            Expression::Identifier { span, .. } => span,
+            Expression::BinaryOp { span, .. } => span,
+            Expression::UnaryOp { span, .. } => span,
+            Expression::Cast { span, .. } => span,
+            Expression::FunctionCall { span, .. } => span,
+            Expression::ArrayAccess { span, .. } => span,
+            Expression::MemberAccess { span, .. } => span,
+            Expression::PointerMemberAccess { span, .. } => span,
+            Expression::Conditional { span, .. } => span,
+            Expression::Assignment { span, .. } => span,
+        }
+    }
+}
