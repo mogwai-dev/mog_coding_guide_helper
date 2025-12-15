@@ -129,6 +129,7 @@ pub enum Item {
         text: String,
         struct_name: Option<String>,
         has_typedef: bool,
+        variable_names: Vec<String>,
         members: Vec<StructMember>,  // メンバー情報
         trivia: Trivia,
     },

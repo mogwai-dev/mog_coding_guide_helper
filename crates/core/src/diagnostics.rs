@@ -25,6 +25,8 @@ pub struct DiagnosticConfig {
     pub check_function_format: bool,
     pub check_type_safety: bool,
     pub check_macro_parentheses: bool,  // マクロ定義の値が括弧で囲まれているかチェック
+    pub check_global_var_naming: bool,  // グローバル変数の命名規則チェック（大文字）
+    pub check_global_var_type_prefix: bool,  // グローバル変数の型名プレフィックスチェック
 }
 
 impl Default for DiagnosticConfig {
@@ -35,6 +37,8 @@ impl Default for DiagnosticConfig {
             check_function_format: true,
             check_type_safety: true,
             check_macro_parentheses: true,
+            check_global_var_naming: true,
+            check_global_var_type_prefix: true,
         }
     }
 }
@@ -59,6 +63,14 @@ pub fn diagnose(tu: &TranslationUnit, config: &DiagnosticConfig) -> Vec<Diagnost
     
     if config.check_macro_parentheses {
         diagnostics.extend(check_macro_parentheses(tu));
+    }
+    
+    if config.check_global_var_naming {
+        diagnostics.extend(check_global_var_naming(tu));
+    }
+    
+    if config.check_global_var_type_prefix {
+        diagnostics.extend(check_global_var_type_prefix(tu));
     }
     
     // 今後、他のチェックもここに追加
@@ -390,4 +402,275 @@ fn is_wrapped_in_parentheses(value: &str) -> bool {
     }
     
     depth == 0
+}
+
+/// グローバル変数の命名規則チェック（大文字であるべき）
+fn check_global_var_naming(tu: &TranslationUnit) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    
+    // トップレベルのアイテムのみチェック（関数内部は除外）
+    for item in &tu.items {
+        match item {
+            Item::VarDecl { span, var_name, var_type, .. } => {
+                // extern宣言やtypedefは除外（var_typeがあるものだけチェック）
+                if var_type.is_some() && !is_uppercase_with_underscores(var_name) {
+                    diagnostics.push(Diagnostic {
+                        span: span.clone(),
+                        severity: DiagnosticSeverity::Warning,
+                        message: format!(
+                            "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
+                            var_name,
+                            to_uppercase_with_underscores(var_name)
+                        ),
+                        code: "CGH006".to_string(),
+                    });
+                }
+            },
+            Item::StructDecl { span, text, variable_names, members, has_typedef, .. } => {
+                // typedefでない場合のみ変数名をチェック
+                if !has_typedef {
+                    // variable_namesが空の場合、textから抽出（変数宣言のみの場合）
+                    if variable_names.is_empty() && members.is_empty() {
+                        if let Some(var_name) = extract_var_name_from_struct_decl(text) {
+                            if !is_uppercase_with_underscores(&var_name) {
+                                diagnostics.push(Diagnostic {
+                                    span: span.clone(),
+                                    severity: DiagnosticSeverity::Warning,
+                                    message: format!(
+                                        "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
+                                        var_name,
+                                        to_uppercase_with_underscores(&var_name)
+                                    ),
+                                    code: "CGH006".to_string(),
+                                });
+                            }
+                        }
+                    } else {
+                        // variable_namesがある場合はそれをチェック
+                        for var_name in variable_names {
+                            if !is_uppercase_with_underscores(var_name) {
+                                diagnostics.push(Diagnostic {
+                                    span: span.clone(),
+                                    severity: DiagnosticSeverity::Warning,
+                                    message: format!(
+                                        "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
+                                        var_name,
+                                        to_uppercase_with_underscores(var_name)
+                                    ),
+                                    code: "CGH006".to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+            },
+            Item::EnumDecl { span, text, variable_names, variants, has_typedef, .. } => {
+                // typedefでない場合のみ変数名をチェック
+                if !has_typedef {
+                    // variable_namesが空の場合、textから抽出（変数宣言のみの場合）
+                    if variable_names.is_empty() && variants.is_empty() {
+                        if let Some(var_name) = extract_var_name_from_struct_decl(text) {
+                            if !is_uppercase_with_underscores(&var_name) {
+                                diagnostics.push(Diagnostic {
+                                    span: span.clone(),
+                                    severity: DiagnosticSeverity::Warning,
+                                    message: format!(
+                                        "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
+                                        var_name,
+                                        to_uppercase_with_underscores(&var_name)
+                                    ),
+                                    code: "CGH006".to_string(),
+                                });
+                            }
+                        }
+                    } else {
+                        // variable_namesがある場合はそれをチェック
+                        for var_name in variable_names {
+                            if !is_uppercase_with_underscores(var_name) {
+                                diagnostics.push(Diagnostic {
+                                    span: span.clone(),
+                                    severity: DiagnosticSeverity::Warning,
+                                    message: format!(
+                                        "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
+                                        var_name,
+                                        to_uppercase_with_underscores(var_name)
+                                    ),
+                                    code: "CGH006".to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+            },
+            Item::UnionDecl { span, text, variable_names, members, has_typedef, .. } => {
+                // typedefでない場合のみ変数名をチェック
+                if !has_typedef {
+                    // variable_namesが空の場合、textから抽出（変数宣言のみの場合）
+                    if variable_names.is_empty() && members.is_empty() {
+                        if let Some(var_name) = extract_var_name_from_struct_decl(text) {
+                            if !is_uppercase_with_underscores(&var_name) {
+                                diagnostics.push(Diagnostic {
+                                    span: span.clone(),
+                                    severity: DiagnosticSeverity::Warning,
+                                    message: format!(
+                                        "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
+                                        var_name,
+                                        to_uppercase_with_underscores(&var_name)
+                                    ),
+                                    code: "CGH006".to_string(),
+                                });
+                            }
+                        }
+                    } else {
+                        // variable_namesがある場合はそれをチェック
+                        for var_name in variable_names {
+                            if !is_uppercase_with_underscores(var_name) {
+                                diagnostics.push(Diagnostic {
+                                    span: span.clone(),
+                                    severity: DiagnosticSeverity::Warning,
+                                    message: format!(
+                                        "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
+                                        var_name,
+                                        to_uppercase_with_underscores(var_name)
+                                    ),
+                                    code: "CGH006".to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+            },
+            _ => {}
+        }
+    }
+    
+    diagnostics
+}
+
+/// struct宣言のtextフィールドから変数名を抽出
+/// 例: "struct Point myPoint;" -> Some("myPoint")
+fn extract_var_name_from_struct_decl(text: &str) -> Option<String> {
+    // "struct TypeName varName;" のパターンをパース
+    let trimmed = text.trim();
+    
+    // "struct" で始まっているか確認
+    if !trimmed.starts_with("struct") && !trimmed.starts_with("enum") && !trimmed.starts_with("union") {
+        return None;
+    }
+    
+    // セミコロンの前の部分を取得
+    let before_semicolon = trimmed.trim_end_matches(';').trim();
+    
+    // 最後のトークン（変数名）を取得
+    let tokens: Vec<&str> = before_semicolon.split_whitespace().collect();
+    if tokens.len() >= 3 {
+        // "struct" "TypeName" "varName" の形式
+        return Some(tokens.last().unwrap().to_string());
+    }
+    
+    None
+}
+
+/// 文字列が大文字とアンダースコアのみで構成されているか判定
+fn is_uppercase_with_underscores(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    
+    for ch in s.chars() {
+        if !ch.is_uppercase() && ch != '_' && !ch.is_numeric() {
+            return false;
+        }
+    }
+    
+    true
+}
+
+/// 文字列を大文字とアンダースコアの形式に変換
+fn to_uppercase_with_underscores(s: &str) -> String {
+    let mut result = String::new();
+    let mut prev_was_lower = false;
+    
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_uppercase() {
+            // キャメルケースの境界を検出（前の文字が小文字で現在が大文字）
+            if i > 0 && prev_was_lower {
+                result.push('_');
+            }
+            result.push(ch);
+            prev_was_lower = false;
+        } else if ch.is_lowercase() {
+            result.push(ch.to_uppercase().next().unwrap());
+            prev_was_lower = true;
+        } else {
+            // アンダースコアや数字はそのまま
+            result.push(ch);
+            prev_was_lower = false;
+        }
+    }
+    
+    result
+}
+
+/// グローバル変数の型名プレフィックスチェック
+fn check_global_var_type_prefix(tu: &TranslationUnit) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    
+    // 型名とそのプレフィックスのマッピング
+    let type_prefixes = [
+        ("VU8", "VU8_"),
+        ("VU16", "VU16_"),
+        ("VU32", "VU32_"),
+        ("VU64", "VU64_"),
+        ("VS8", "VS8_"),
+        ("VS16", "VS16_"),
+        ("VS32", "VS32_"),
+        ("VS64", "VS64_"),
+        ("CU8", "CU8_"),
+        ("CU16", "CU16_"),
+        ("CU32", "CU32_"),
+        ("CU64", "CU64_"),
+        ("CS8", "CS8_"),
+        ("CS16", "CS16_"),
+        ("CS32", "CS32_"),
+        ("CS64", "CS64_"),
+    ];
+    
+    for item in &tu.items {
+        if let Item::VarDecl { span, var_name, var_type, text, .. } = item {
+            if var_type.is_some() {
+                // textから型名を抽出（最初の空白までが型名）
+                let type_name = text.trim().split_whitespace().next().unwrap_or("");
+                
+                // 型名が該当するかチェック
+                for (type_str, prefix) in &type_prefixes {
+                    if type_name == *type_str && !var_name.starts_with(prefix) {
+                        let suggested_name = if var_name.starts_with(prefix.trim_end_matches('_')) {
+                            // 既にプレフィックス部分はあるが_がない場合
+                            format!("{}{}", prefix, &var_name[prefix.trim_end_matches('_').len()..])
+                        } else {
+                            // プレフィックスがない場合
+                            format!("{}{}", prefix, var_name)
+                        };
+                        
+                        diagnostics.push(Diagnostic {
+                            span: span.clone(),
+                            severity: DiagnosticSeverity::Warning,
+                            message: format!(
+                                "型 '{}' のグローバル変数 '{}' は '{}' で始まることを推奨します。例: '{}'",
+                                type_str,
+                                var_name,
+                                prefix,
+                                suggested_name
+                            ),
+                            code: "CGH007".to_string(),
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    diagnostics
 }

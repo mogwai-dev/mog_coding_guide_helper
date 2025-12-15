@@ -84,6 +84,7 @@ fn test_formatter_format_tu_trims_leading_whitespace() {
             text: String::from("  struct Point { int x; };"),
             struct_name: Some(String::from("Point")),
             has_typedef: false,
+            variable_names: Vec::new(),
             members: Vec::new(),
             trivia: Trivia::empty(),
         };

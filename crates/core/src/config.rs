@@ -29,6 +29,8 @@ pub struct DiagnosticsConfig {
     pub check_type_safety: bool,
     pub check_storage_class_order: bool,
     pub check_macro_parentheses: bool,
+    pub check_global_var_naming: bool,
+    pub check_global_var_type_prefix: bool,
 }
 
 impl Default for DiagnosticsConfig {
@@ -39,6 +41,8 @@ impl Default for DiagnosticsConfig {
             check_type_safety: true,
             check_storage_class_order: true,
             check_macro_parentheses: true,
+            check_global_var_naming: true,
+            check_global_var_type_prefix: true,
         }
     }
 }
@@ -128,6 +132,8 @@ impl ProjectConfig {
             check_type_safety: self.diagnostics.check_type_safety,
             check_storage_class_order: self.diagnostics.check_storage_class_order,
             check_macro_parentheses: self.diagnostics.check_macro_parentheses,
+            check_global_var_naming: self.diagnostics.check_global_var_naming,
+            check_global_var_type_prefix: self.diagnostics.check_global_var_type_prefix,
         }
     }
 }

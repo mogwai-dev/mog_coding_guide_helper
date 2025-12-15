@@ -37,10 +37,32 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(lexer: Lexer) -> Self {
+        let mut type_table = TypeTable::new();
+        
+        // 組み込み型名を事前登録（文字列のみ）
+        let predefined_types = [
+            "VU8", "VU16", "VU32", "VU64",
+            "VS8", "VS16", "VS32", "VS64",
+            "CU8", "CU16", "CU32", "CU64",
+            "CS8", "CS16", "CS32", "CS64",
+        ];
+        
+        for type_name in &predefined_types {
+            // Spanはダミー値を使用
+            let dummy_span = crate::span::Span::new(0, 0, 0, 0);
+            type_table.register_type(
+                type_name.to_string(),
+                crate::type_system::Type::new(
+                    crate::type_system::BaseType::Int,  // プレースホルダー
+                    dummy_span
+                )
+            );
+        }
+        
         Parser { 
             lexer,
             pending_comments: Vec::new(),
-            type_table: TypeTable::new(),
+            type_table,
             defined_macros: HashMap::new(),
         }
     }
@@ -462,6 +484,7 @@ impl Parser {
                         text,
                         struct_name,
                         has_typedef,
+                        variable_names: Vec::new(),  // TODO: 後で実装
                         members,
                         trivia,
                     });
@@ -880,6 +903,7 @@ impl Parser {
                                 text: text.clone(),
                                 struct_name: struct_name.clone(),
                                 has_typedef: true,
+                                variable_names: Vec::new(),  // TODO: 後で実装
                                 members: Vec::new(),  // TODO: 後で実装
                                 trivia,
                             });
@@ -1034,6 +1058,71 @@ impl Parser {
                             // 型テーブルに登録
                             self.register_typedef_name(&text);
                         }
+                    }
+                },
+                Token::Ident(IdentToken { span, name }) => {
+                    // 識別子が型名として登録されているかチェック
+                    if self.type_table.is_type_name(&name) {
+                        // typedef型を使った変数宣言として処理
+                        let start_byte = span.byte_start_idx;
+                        let mut end_byte = span.byte_end_idx;
+                        let mut var_name = String::new();
+                        let mut has_initializer = false;
+                        
+                        // 次の識別子が変数名
+                        if let Some(Token::Ident(IdentToken { span: var_span, name: vname })) = self.lexer.next_token() {
+                            var_name = vname;
+                            end_byte = var_span.byte_end_idx;
+                            
+                            // セミコロンまたは初期化子を探す
+                            loop {
+                                match self.lexer.next_token() {
+                                    Some(Token::Equal(..)) => {
+                                        has_initializer = true;
+                                    },
+                                    Some(Token::Semicolon(SemicolonToken { span: semi_span })) => {
+                                        end_byte = semi_span.byte_end_idx;
+                                        break;
+                                    },
+                                    Some(_) => {
+                                        // 初期化式の中身は無視
+                                        continue;
+                                    },
+                                    None => {
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            let text = self.lexer.input[start_byte..end_byte].to_string();
+                            let final_span = Span {
+                                start_line: span.start_line,
+                                start_column: span.start_column,
+                                end_line: self.lexer.line,
+                                end_column: self.lexer.column,
+                                byte_start_idx: start_byte,
+                                byte_end_idx: end_byte,
+                            };
+                            
+                            // 型情報を作成（簡易版 - Intをプレースホルダーとして使用）
+                            let var_type = Some(crate::type_system::Type::new(
+                                crate::type_system::BaseType::Int,
+                                span.clone()
+                            ));
+                            
+                            let trivia = self.take_trivia();
+                            items.push(Item::VarDecl {
+                                span: final_span,
+                                text,
+                                var_name,
+                                has_initializer,
+                                var_type,
+                                trivia,
+                            });
+                        }
+                    } else {
+                        // 型名ではない識別子は無視
+                        continue;
                     }
                 },
                 _ => {

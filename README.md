@@ -10,6 +10,7 @@ C言語のコーディングガイドチェッカー＆フォーマッター
   - CGH003: 型安全性の警告（void変数、3重ポインタなど）
   - CGH004: 記憶域クラス指定子の順序チェック
   - CGH005: マクロの置換値が演算子を含む場合の括弧チェック
+  - CGH006: グローバル変数の命名規則（大文字とアンダースコア）
 
 - **フォーマット**: コードの自動整形
   - ファイルヘッダーの自動追加
@@ -94,6 +95,7 @@ check_function_format = true
 check_type_safety = true
 check_storage_class_order = true
 check_macro_parentheses = true
+check_global_var_naming = true
 
 [file_header]
 required_fields = ["Author", "Date", "Purpose"]
@@ -111,6 +113,7 @@ use_tabs = true  # 4スペースをタブに変換
   - `check_type_safety`: 型安全性の警告 (CGH003)
   - `check_storage_class_order`: 記憶域クラス指定子の順序チェック (CGH004)
   - `check_macro_parentheses`: マクロの置換値の括弧チェック (CGH005)
+  - `check_global_var_naming`: グローバル変数の命名規則チェック (CGH006)
 
 - `[file_header]` - ファイルヘッダーの要件
   - `required_fields`: 必須フィールドのリスト
