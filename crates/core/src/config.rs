@@ -9,6 +9,7 @@ pub struct ProjectConfig {
     pub diagnostics: DiagnosticsConfig,
     pub file_header: FileHeaderConfig,
     pub formatting: FormattingConfig,
+    pub preprocessor: PreprocessorConfig,
 }
 
 impl Default for ProjectConfig {
@@ -17,6 +18,7 @@ impl Default for ProjectConfig {
             diagnostics: DiagnosticsConfig::default(),
             file_header: FileHeaderConfig::default(),
             formatting: FormattingConfig::default(),
+            preprocessor: PreprocessorConfig::default(),
         }
     }
 }
@@ -31,6 +33,8 @@ pub struct DiagnosticsConfig {
     pub check_macro_parentheses: bool,
     pub check_global_var_naming: bool,
     pub check_global_var_type_prefix: bool,
+    pub check_preprocessor_indent: bool,
+    pub check_indent_style: bool,
 }
 
 impl Default for DiagnosticsConfig {
@@ -43,6 +47,8 @@ impl Default for DiagnosticsConfig {
             check_macro_parentheses: true,
             check_global_var_naming: true,
             check_global_var_type_prefix: true,
+            check_preprocessor_indent: true,
+            check_indent_style: true,
         }
     }
 }
@@ -67,11 +73,26 @@ impl Default for FileHeaderConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum IndentStyle {
+    Tabs,
+    Spaces,
+}
+
+impl Default for IndentStyle {
+    fn default() -> Self {
+        IndentStyle::Spaces
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct FormattingConfig {
     pub add_file_header: bool,
     pub use_tabs: bool,  // 4スペースをタブに変換
+    pub indent_style: IndentStyle,  // インデントにタブまたはスペースを使用
+    pub indent_width: usize,  // スペース使用時のインデント幅
 }
 
 impl Default for FormattingConfig {
@@ -79,7 +100,38 @@ impl Default for FormattingConfig {
         FormattingConfig {
             add_file_header: true,
             use_tabs: false,  // デフォルトはスペースのまま
+            indent_style: IndentStyle::Spaces,
+            indent_width: 4,
         }
+    }
+}
+
+/// プリプロセッサ設定
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PreprocessorConfig {
+    /// 定義済みマクロのリスト（例: ["_WIN32", "DEBUG"]）
+    pub defines: Vec<String>,
+    /// ヘッダーファイル検索パス（例: ["./include", "C:/SDK/include"]）
+    pub include_paths: Vec<PathBuf>,
+}
+
+impl Default for PreprocessorConfig {
+    fn default() -> Self {
+        PreprocessorConfig {
+            defines: Vec::new(),
+            include_paths: vec![PathBuf::from(".")],
+        }
+    }
+}
+
+impl PreprocessorConfig {
+    /// 指定されたマクロが定義されているかチェック
+    pub fn is_macro_defined(&self, macro_name: &str) -> bool {
+        self.defines.iter().any(|def| {
+            // "MACRO" または "MACRO=value" の形式に対応
+            def == macro_name || def.starts_with(&format!("{}=", macro_name))
+        })
     }
 }
 
@@ -134,6 +186,10 @@ impl ProjectConfig {
             check_macro_parentheses: self.diagnostics.check_macro_parentheses,
             check_global_var_naming: self.diagnostics.check_global_var_naming,
             check_global_var_type_prefix: self.diagnostics.check_global_var_type_prefix,
+            check_preprocessor_indent: self.diagnostics.check_preprocessor_indent,
+            check_indent_style: self.diagnostics.check_indent_style,
+            indent_style: self.formatting.indent_style.clone(),
+            indent_width: self.formatting.indent_width,
         }
     }
 }
@@ -182,5 +238,24 @@ check_file_header = false
         let config: ProjectConfig = toml::from_str(toml_str).unwrap();
         assert!(!config.diagnostics.check_file_header);
         assert!(config.diagnostics.check_function_format); // デフォルト値
+    }
+
+    #[test]
+    fn test_new_diagnostic_options() {
+        // CGH007とCGH008の設定読み込みテスト
+        let toml_str = r#"
+[diagnostics]
+check_global_var_type_prefix = false
+check_preprocessor_indent = false
+"#;
+        
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert!(!config.diagnostics.check_global_var_type_prefix);
+        assert!(!config.diagnostics.check_preprocessor_indent);
+        
+        // デフォルト値の確認
+        let default_config = ProjectConfig::default();
+        assert!(default_config.diagnostics.check_global_var_type_prefix);
+        assert!(default_config.diagnostics.check_preprocessor_indent);
     }
 }

@@ -27,6 +27,10 @@ pub struct DiagnosticConfig {
     pub check_macro_parentheses: bool,  // マクロ定義の値が括弧で囲まれているかチェック
     pub check_global_var_naming: bool,  // グローバル変数の命名規則チェック（大文字）
     pub check_global_var_type_prefix: bool,  // グローバル変数の型名プレフィックスチェック
+    pub check_preprocessor_indent: bool,  // プリプロセッサディレクティブのインデントチェック
+    pub check_indent_style: bool,  // インデントスタイル（タブ/スペース）のチェック
+    pub indent_style: crate::config::IndentStyle,  // 期待されるインデントスタイル
+    pub indent_width: usize,  // スペース使用時のインデント幅
 }
 
 impl Default for DiagnosticConfig {
@@ -39,12 +43,21 @@ impl Default for DiagnosticConfig {
             check_macro_parentheses: true,
             check_global_var_naming: true,
             check_global_var_type_prefix: true,
+            check_preprocessor_indent: true,
+            check_indent_style: true,
+            indent_style: crate::config::IndentStyle::Spaces,
+            indent_width: 4,
         }
     }
 }
 
 /// TranslationUnitに対して診断を実行
 pub fn diagnose(tu: &TranslationUnit, config: &DiagnosticConfig) -> Vec<Diagnostic> {
+    diagnose_with_source(tu, config, "")
+}
+
+/// ソースコード付きで診断を実行（インデントスタイルチェック用）
+pub fn diagnose_with_source(tu: &TranslationUnit, config: &DiagnosticConfig, source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     
     if config.check_file_header {
@@ -71,6 +84,14 @@ pub fn diagnose(tu: &TranslationUnit, config: &DiagnosticConfig) -> Vec<Diagnost
     
     if config.check_global_var_type_prefix {
         diagnostics.extend(check_global_var_type_prefix(tu));
+    }
+    
+    if config.check_preprocessor_indent {
+        diagnostics.extend(check_preprocessor_indent(tu));
+    }
+    
+    if config.check_indent_style && !source.is_empty() {
+        diagnostics.extend(check_indent_style(source, &config.indent_style, config.indent_width));
     }
     
     // 今後、他のチェックもここに追加
@@ -667,6 +688,154 @@ fn check_global_var_type_prefix(tu: &TranslationUnit) -> Vec<Diagnostic> {
                         });
                         break;
                     }
+                }
+            }
+        }
+    }
+    
+    diagnostics
+}
+
+/// プリプロセッサディレクティブのインデントをチェック（CGH008）
+/// プリプロセッサディレクティブは行頭（0列目）から始まるべき
+fn check_preprocessor_indent(tu: &TranslationUnit) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    
+    fn check_items(items: &[Item], diagnostics: &mut Vec<Diagnostic>) {
+        for item in items {
+            match item {
+                Item::Include { span, .. } |
+                Item::Define { span, .. } => {
+                    // プリプロセッサディレクティブの前にスペースがあるかチェック
+                    if span.start_column > 0 {
+                        diagnostics.push(Diagnostic {
+                            span: span.clone(),
+                            severity: DiagnosticSeverity::Warning,
+                            message: format!(
+                                "プリプロセッサディレクティブの前にスペースがあります（{}文字）。行頭から始めてください。",
+                                span.start_column
+                            ),
+                            code: "CGH008".to_string(),
+                        });
+                    }
+                },
+                Item::ConditionalBlock { start_span, items: nested_items, .. } => {
+                    // ifdef/ifndef/if/elif/else/endifもチェック
+                    if start_span.start_column > 0 {
+                        diagnostics.push(Diagnostic {
+                            span: start_span.clone(),
+                            severity: DiagnosticSeverity::Warning,
+                            message: format!(
+                                "プリプロセッサディレクティブの前にスペースがあります（{}文字）。行頭から始めてください。",
+                                start_span.start_column
+                            ),
+                            code: "CGH008".to_string(),
+                        });
+                    }
+                    // ネストされたアイテムも再帰的にチェック
+                    check_items(nested_items, diagnostics);
+                },
+                _ => {}
+            }
+        }
+    }
+    
+    check_items(&tu.items, &mut diagnostics);
+    diagnostics
+}
+
+/// CGH009: インデントスタイル（タブ/スペース）のチェック
+fn check_indent_style(
+    source: &str,
+    expected_style: &crate::config::IndentStyle,
+    indent_width: usize,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    
+    // ソースコードの各行をチェック
+    let lines: Vec<&str> = source.lines().collect();
+    
+    for (line_idx, line) in lines.iter().enumerate() {
+        // 空行や非空白文字で始まる行はスキップ
+        if line.is_empty() || !line.starts_with(|c: char| c == ' ' || c == '\t') {
+            continue;
+        }
+        
+        // 行頭の空白を解析
+        let leading_whitespace: String = line.chars()
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect();
+        
+        let has_tabs = leading_whitespace.contains('\t');
+        let has_spaces = leading_whitespace.contains(' ');
+        
+        // タブとスペースの混在をチェック
+        if has_tabs && has_spaces {
+            let span = Span {
+                start_line: line_idx + 1,
+                start_column: 0,
+                end_line: line_idx + 1,
+                end_column: leading_whitespace.len(),
+                byte_start_idx: 0,
+                byte_end_idx: leading_whitespace.len(),
+            };
+            
+            diagnostics.push(Diagnostic {
+                span,
+                severity: DiagnosticSeverity::Warning,
+                message: format!(
+                    "インデントにタブとスペースが混在しています。{}のみを使用してください。",
+                    match expected_style {
+                        crate::config::IndentStyle::Tabs => "タブ",
+                        crate::config::IndentStyle::Spaces => "スペース",
+                    }
+                ),
+                code: "CGH009".to_string(),
+            });
+            continue;
+        }
+        
+        // 期待されるスタイルと実際のスタイルが一致しているかチェック
+        match expected_style {
+            crate::config::IndentStyle::Tabs => {
+                if has_spaces && !has_tabs {
+                    let span = Span {
+                        start_line: line_idx + 1,
+                        start_column: 0,
+                        end_line: line_idx + 1,
+                        end_column: leading_whitespace.len(),
+                        byte_start_idx: 0,
+                        byte_end_idx: leading_whitespace.len(),
+                    };
+                    
+                    diagnostics.push(Diagnostic {
+                        span,
+                        severity: DiagnosticSeverity::Warning,
+                        message: "インデントにタブを使用すべきところでスペースが使われています。".to_string(),
+                        code: "CGH009".to_string(),
+                    });
+                }
+            }
+            crate::config::IndentStyle::Spaces => {
+                if has_tabs && !has_spaces {
+                    let span = Span {
+                        start_line: line_idx + 1,
+                        start_column: 0,
+                        end_line: line_idx + 1,
+                        end_column: leading_whitespace.len(),
+                        byte_start_idx: 0,
+                        byte_end_idx: leading_whitespace.len(),
+                    };
+                    
+                    diagnostics.push(Diagnostic {
+                        span,
+                        severity: DiagnosticSeverity::Warning,
+                        message: format!(
+                            "インデントにスペース（{}文字単位）を使用すべきところでタブが使われています。",
+                            indent_width
+                        ),
+                        code: "CGH009".to_string(),
+                    });
                 }
             }
         }

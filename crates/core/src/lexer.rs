@@ -138,6 +138,9 @@ impl Lexer {
         let start_line = self.line;
         let start_column = self.column;
         let mut start_byte_flag: Option<usize> = None;
+        
+        // 行頭からの位置を記録（プリプロセッサディレクティブのインデント計算用）
+        let mut line_start_column = self.column;
 
         loop {
             match self.now {
@@ -145,6 +148,10 @@ impl Lexer {
                     // 空白文字はスキップ
                     if start_byte_flag.is_none() {
                         start_byte_flag = Some(byte_idx);
+                    }
+                    // 改行の場合、次の行頭列を0にリセット
+                    if matches!(self.now, Some((_, '\n')) | Some((_, '\r'))) {
+                        line_start_column = 0;
                     }
                     self.next_char();
                     continue;
@@ -1035,6 +1042,25 @@ impl Lexer {
                     if start_byte_flag.is_none() {
                         start_byte_flag = Some(byte_idx);
                     }
+                    
+                    // プリプロセッサディレクティブは行頭からの位置を記録
+                    // 行頭（直前の\nまたはファイル先頭）から#までの文字数を計算
+                    let directive_start_column = {
+                        let mut col = 0;
+                        let mut pos = byte_idx;
+                        // 行頭まで遡る
+                        while pos > 0 {
+                            let prev_byte = pos - 1;
+                            let ch = self.input[prev_byte..pos].chars().next().unwrap_or('\0');
+                            if ch == '\n' || ch == '\r' {
+                                break;
+                            }
+                            col += 1;
+                            pos = prev_byte;
+                        }
+                        col
+                    };
+                    
                     self.next_char();
 
                     // ディレクティブを行末まで読み取る（先頭の空白は start_char_idx でカバーされる）
@@ -1119,7 +1145,7 @@ impl Lexer {
                         return Some(Token::Include(IncludeToken {
                             span: Span {
                                 start_line,
-                                start_column,
+                                start_column: directive_start_column,
                                 end_line,
                                 end_column,
                                 byte_start_idx: start_byte_flag.unwrap(),
@@ -1140,7 +1166,7 @@ impl Lexer {
                             return Some(Token::Define(DefineToken {
                                 span: Span {
                                     start_line,
-                                    start_column,
+                                    start_column: directive_start_column,
                                     end_line,
                                     end_column,
                                     byte_start_idx: start_byte_flag.unwrap(),
@@ -1157,7 +1183,7 @@ impl Lexer {
                         return Some(Token::Ifdef(IfdefToken {
                             span: Span {
                                 start_line,
-                                start_column,
+                                start_column: directive_start_column,
                                 end_line,
                                 end_column,
                                 byte_start_idx: start_byte_flag.unwrap(),
@@ -1171,7 +1197,7 @@ impl Lexer {
                         return Some(Token::Ifndef(IfndefToken {
                             span: Span {
                                 start_line,
-                                start_column,
+                                start_column: directive_start_column,
                                 end_line,
                                 end_column,
                                 byte_start_idx: start_byte_flag.unwrap(),
@@ -1185,7 +1211,7 @@ impl Lexer {
                         return Some(Token::If(IfToken {
                             span: Span {
                                 start_line,
-                                start_column,
+                                start_column: directive_start_column,
                                 end_line,
                                 end_column,
                                 byte_start_idx: start_byte_flag.unwrap(),
@@ -1199,7 +1225,7 @@ impl Lexer {
                         return Some(Token::Elif(ElifToken {
                             span: Span {
                                 start_line,
-                                start_column,
+                                start_column: directive_start_column,
                                 end_line,
                                 end_column,
                                 byte_start_idx: start_byte_flag.unwrap(),
@@ -1213,7 +1239,7 @@ impl Lexer {
                         return Some(Token::Else(ElseToken {
                             span: Span {
                                 start_line,
-                                start_column,
+                                start_column: directive_start_column,
                                 end_line,
                                 end_column,
                                 byte_start_idx: start_byte_flag.unwrap(),
@@ -1227,7 +1253,7 @@ impl Lexer {
                         return Some(Token::Endif(EndifToken {
                             span: Span {
                                 start_line,
-                                start_column,
+                                start_column: directive_start_column,
                                 end_line,
                                 end_column,
                                 byte_start_idx: start_byte_flag.unwrap(),
@@ -1240,7 +1266,7 @@ impl Lexer {
                     return Some(Token::Include(IncludeToken {
                         span: Span {
                             start_line,
-                            start_column,
+                            start_column: directive_start_column,
                             end_line,
                             end_column,
                             byte_start_idx: start_byte_flag.unwrap(),

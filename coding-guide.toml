@@ -3,9 +3,14 @@ check_file_header = false
 check_function_format = true
 check_type_safety = true
 check_storage_class_order = true
+check_global_var_type_prefix = true
+check_preprocessor_indent = true
+check_indent_style = true
 
 [file_header]
 required_fields = ["Author", "Date"]
 
 [formatting]
 add_file_header = false
+indent_style = "spaces"  # "tabs" or "spaces"
+indent_width = 4         # スペース使用時のインデント幅

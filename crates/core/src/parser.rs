@@ -5,7 +5,9 @@ use crate::span::Span;
 use crate::trivia::{Trivia, Comment};
 use crate::type_system::{BaseType, Type, TypeQualifier};
 use crate::type_table::TypeTable;
-use std::collections::HashMap;
+use crate::config::PreprocessorConfig;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 // パース中のコンテキスト
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +28,13 @@ enum StopReason {
     Eof,
 }
 
+// ifdef/ifndef のコンテキスト
+#[derive(Debug, Clone)]
+struct IfdefContext {
+    condition: String,     // マクロ名（例: "_WIN32"）
+    is_active: bool,       // 現在のブランチがアクティブか
+    seen_else: bool,       // #else を見たか
+}
 
 #[derive(Debug)]
 pub struct Parser {
@@ -33,10 +42,18 @@ pub struct Parser {
     pending_comments: Vec<Comment>,  // 次のItemに付与する予定のコメント
     type_table: TypeTable,           // typedef名を管理
     defined_macros: HashMap<String, String>,  // #define で定義されたマクロ
+    preprocessor_config: PreprocessorConfig,  // プリプロセッサ設定
+    ifdef_stack: Vec<IfdefContext>,  // ifdef/ifndef のネストを追跡
+    parsed_headers: HashSet<PathBuf>, // 解析済みヘッダー（循環include防止）
+    current_file_dir: PathBuf,       // 現在解析中のファイルのディレクトリ
 }
 
 impl Parser {
     pub fn new(lexer: Lexer) -> Self {
+        Self::new_with_config(lexer, PreprocessorConfig::default())
+    }
+    
+    pub fn new_with_config(lexer: Lexer, preprocessor_config: PreprocessorConfig) -> Self {
         let mut type_table = TypeTable::new();
         
         // 組み込み型名を事前登録（文字列のみ）
@@ -64,7 +81,18 @@ impl Parser {
             pending_comments: Vec::new(),
             type_table,
             defined_macros: HashMap::new(),
+            preprocessor_config,
+            ifdef_stack: Vec::new(),
+            parsed_headers: HashSet::new(),
+            current_file_dir: PathBuf::from("."),
         }
+    }
+    
+    /// 現在のブランチがアクティブか判定（型登録に使用）
+    fn is_current_branch_active(&self) -> bool {
+        // ifdef_stackが空ならトップレベル（常にアクティブ）
+        // すべてのスタックがアクティブなら現在のブランチもアクティブ
+        self.ifdef_stack.iter().all(|ctx| ctx.is_active)
     }
 
     pub fn parse(&mut self) -> TranslationUnit {
@@ -103,6 +131,12 @@ impl Parser {
                 Token::Include(IncludeToken { span, filename }) => {
                     let text = self.lexer.input[span.byte_start_idx..span.byte_end_idx].to_string();
                     let trivia = self.take_trivia();
+                    
+                    // ヘッダーファイルを解析（アクティブなブランチのみ）
+                    if self.is_current_branch_active() {
+                        self.parse_header_file(&filename);
+                    }
+                    
                     items.push(Item::Include { span, text, filename, trivia });
                 },
                 Token::Define(DefineToken { span, macro_name, macro_value }) => {
@@ -907,8 +941,10 @@ impl Parser {
                                 members: Vec::new(),  // TODO: 後で実装
                                 trivia,
                             });
-                            // 型テーブルに登録
-                            self.register_typedef_name(&text);
+                            // 型テーブルに登録（アクティブなブランチのみ）
+                            if self.is_current_branch_active() {
+                                self.register_typedef_name(&text);
+                            }
                         },
                         Some(Token::Enum(..)) => {
                             // typedef enum の処理
@@ -969,8 +1005,10 @@ impl Parser {
                                 variants: Vec::new(),  // TODO: 後で実装
                                 trivia,
                             });
-                            // 型テーブルに登録
-                            self.register_typedef_name(&text);
+                            // 型テーブルに登録（アクティブなブランチのみ）
+                            if self.is_current_branch_active() {
+                                self.register_typedef_name(&text);
+                            }
                         },
                         Some(Token::Union(..)) => {
                             // typedef union の処理
@@ -1028,8 +1066,10 @@ impl Parser {
                                 members: Vec::new(),  // TODO: 後で実装
                                 trivia,
                             });
-                            // 型テーブルに登録
-                            self.register_typedef_name(&text);
+                            // 型テーブルに登録（アクティブなブランチのみ）
+                            if self.is_current_branch_active() {
+                                self.register_typedef_name(&text);
+                            }
                         },
                         _ => {
                             // 通常の typedef（既存の処理）
@@ -1055,8 +1095,10 @@ impl Parser {
                             };
                             let trivia = self.take_trivia();
                             items.push(Item::TypedefDecl { span: final_span, text: text.clone(), trivia });
-                            // 型テーブルに登録
-                            self.register_typedef_name(&text);
+                            // 型テーブルに登録（アクティブなブランチのみ）
+                            if self.is_current_branch_active() {
+                                self.register_typedef_name(&text);
+                            }
                         }
                     }
                 },
@@ -1142,12 +1184,25 @@ impl Parser {
         // 条件を評価
         let condition_result = self.evaluate_condition(directive_type, &condition);
         
+        // ifdef_stackに追加（型登録用）
+        let is_active = condition_result && self.is_current_branch_active();
+        self.ifdef_stack.push(IfdefContext {
+            condition: condition.clone(),
+            is_active,
+            seen_else: false,
+        });
+        
         // このブロック（#ifdef/#ifndef/#if）内のアイテムを解析
         let (mut block_items, stop_reason) = self.parse_items(context, true);
         
         // parse_items が終了した理由を確認（#elif, #else, #endif のいずれか、またはEOF）
         match stop_reason {
             StopReason::Elif(span) => {
+                // スタックを更新（elifは新しい条件）
+                if let Some(ctx) = self.ifdef_stack.last_mut() {
+                    ctx.is_active = false;  // 現在のブランチは終了
+                }
+                
                 // #elif ブロックを子アイテムとして追加し、再帰的に処理
                 let elif_block = self.parse_conditional_block(context, span, "elif");
                 
@@ -1160,6 +1215,9 @@ impl Parser {
                 
                 block_items.push(elif_block);
                 
+                // スタックから削除（elifブランチで追加されているので）
+                self.ifdef_stack.pop();
+                
                 return Item::ConditionalBlock {
                     directive_type: directive_type.to_string(),
                     condition: condition.clone(),
@@ -1171,6 +1229,19 @@ impl Parser {
                 };
             },
             StopReason::Else(span) => {
+                // elseブランチに入る：条件を反転
+                // 親スコープがアクティブかを先に計算
+                let parent_active = if self.ifdef_stack.len() > 1 {
+                    self.ifdef_stack[..self.ifdef_stack.len()-1].iter().all(|ctx| ctx.is_active)
+                } else {
+                    true
+                };
+                
+                if let Some(ctx) = self.ifdef_stack.last_mut() {
+                    ctx.is_active = !ctx.is_active && parent_active;
+                    ctx.seen_else = true;
+                }
+                
                 // #else ブロックを子アイテムとして追加
                 let (else_items, end_reason) = self.parse_items(context, true);
                 
@@ -1203,6 +1274,9 @@ impl Parser {
                     trivia: Trivia::empty(),
                 });
                 
+                // スタックから削除
+                self.ifdef_stack.pop();
+                
                 return Item::ConditionalBlock {
                     directive_type: directive_type.to_string(),
                     condition: condition.clone(),
@@ -1227,6 +1301,9 @@ impl Parser {
                     end_span: end_span.clone(),
                     trivia: Trivia::empty(),
                 });
+                
+                // スタックから削除
+                self.ifdef_stack.pop();
                 
                 return Item::ConditionalBlock {
                     directive_type: directive_type.to_string(),
@@ -1257,16 +1334,17 @@ impl Parser {
     fn extract_condition(&self, span: &Span) -> String {
         let text = &self.lexer.input[span.byte_start_idx..span.byte_end_idx];
         // "#ifdef DEBUG\n" -> "DEBUG" を抽出
-        let content = text.trim_start_matches('#').trim();
+        // まず trim() で空白と改行を削除してから # を削除
+        let content = text.trim().trim_start_matches('#').trim();
         
         if let Some(rest) = content.strip_prefix("ifdef") {
-            rest.trim().trim_end_matches(&['\r', '\n'][..]).to_string()
+            rest.trim().to_string()
         } else if let Some(rest) = content.strip_prefix("ifndef") {
-            rest.trim().trim_end_matches(&['\r', '\n'][..]).to_string()
+            rest.trim().to_string()
         } else if let Some(rest) = content.strip_prefix("elif") {
-            rest.trim().trim_end_matches(&['\r', '\n'][..]).to_string()
+            rest.trim().to_string()
         } else if content.starts_with("if") {
-            content.strip_prefix("if").unwrap().trim().trim_end_matches(&['\r', '\n'][..]).to_string()
+            content.strip_prefix("if").unwrap().trim().to_string()
         } else {
             String::new()
         }
@@ -1276,12 +1354,14 @@ impl Parser {
     fn evaluate_condition(&self, directive_type: &str, condition: &str) -> bool {
         match directive_type {
             "ifdef" => {
-                // マクロが定義されていればtrue
-                self.defined_macros.contains_key(condition)
+                // マクロが定義されていればtrue（defined_macrosとconfigの両方をチェック）
+                self.defined_macros.contains_key(condition) || 
+                self.preprocessor_config.is_macro_defined(condition)
             },
             "ifndef" => {
                 // マクロが定義されていなければtrue
-                !self.defined_macros.contains_key(condition)
+                !self.defined_macros.contains_key(condition) && 
+                !self.preprocessor_config.is_macro_defined(condition)
             },
             "if" | "elif" => {
                 // 簡易的な式評価
@@ -1309,19 +1389,25 @@ impl Parser {
         // defined(MACRO) のパターンをチェック
         if let Some(rest) = expr.strip_prefix("defined(") {
             if let Some(macro_name) = rest.strip_suffix(')') {
-                return self.defined_macros.contains_key(macro_name.trim());
+                let macro_name = macro_name.trim();
+                return self.defined_macros.contains_key(macro_name) || 
+                       self.preprocessor_config.is_macro_defined(macro_name);
             }
         }
         
         // defined MACRO のパターンをチェック
         if let Some(macro_name) = expr.strip_prefix("defined ") {
-            return self.defined_macros.contains_key(macro_name.trim());
+            let macro_name = macro_name.trim();
+            return self.defined_macros.contains_key(macro_name) || 
+                   self.preprocessor_config.is_macro_defined(macro_name);
         }
         
         // !defined(MACRO) のパターン
         if let Some(rest) = expr.strip_prefix("!defined(") {
             if let Some(macro_name) = rest.strip_suffix(')') {
-                return !self.defined_macros.contains_key(macro_name.trim());
+                let macro_name = macro_name.trim();
+                return !self.defined_macros.contains_key(macro_name) && 
+                       !self.preprocessor_config.is_macro_defined(macro_name);
             }
         }
         
@@ -2059,6 +2145,88 @@ impl Parser {
             };
             self.type_table.register_type(type_name, Type::new(BaseType::Int, dummy_span));
         }
+    }
+    
+    /// ヘッダーファイルのパス解決
+    fn resolve_include_path(&self, filename: &str) -> Option<PathBuf> {
+        // #include "file.h" の場合：カレントディレクトリから検索
+        if filename.starts_with('"') && filename.ends_with('"') {
+            let clean_name = filename.trim_matches('"');
+            let current_dir_path = self.current_file_dir.join(clean_name);
+            if current_dir_path.exists() {
+                return Some(current_dir_path);
+            }
+        }
+        
+        // #include <file.h> の場合、または "file.h" が見つからない場合：
+        // include_pathsから検索
+        let clean_name = filename.trim_matches(|c| c == '"' || c == '<' || c == '>');
+        
+        for include_path in &self.preprocessor_config.include_paths {
+            let full_path = include_path.join(clean_name);
+            if full_path.exists() {
+                return Some(full_path);
+            }
+        }
+        
+        None
+    }
+    
+    /// ヘッダーファイルを解析して型情報を取得
+    fn parse_header_file(&mut self, filename: &str) {
+        // パスを解決
+        let Some(header_path) = self.resolve_include_path(filename) else {
+            // ファイルが見つからない場合は無視（警告を出すことも可能）
+            return;
+        };
+        
+        // 正規化して循環include防止
+        let Ok(canonical_path) = header_path.canonicalize() else {
+            return;
+        };
+        
+        // 既に解析済みなら skip
+        if self.parsed_headers.contains(&canonical_path) {
+            return;
+        }
+        
+        // 解析済みとしてマーク
+        self.parsed_headers.insert(canonical_path.clone());
+        
+        // ファイルを読み込み
+        let Ok(content) = std::fs::read_to_string(&canonical_path) else {
+            return;
+        };
+        
+        // 現在のファイルディレクトリを保存
+        let old_dir = self.current_file_dir.clone();
+        if let Some(parent) = canonical_path.parent() {
+            self.current_file_dir = parent.to_path_buf();
+        }
+        
+        // ヘッダーを解析（型情報のみ取得、ASTは破棄）
+        let header_lexer = Lexer::new(&content);
+        let mut header_parser = Parser {
+            lexer: header_lexer,
+            pending_comments: Vec::new(),
+            type_table: self.type_table.clone(), // 型テーブルを共有
+            defined_macros: self.defined_macros.clone(),
+            preprocessor_config: self.preprocessor_config.clone(),
+            ifdef_stack: self.ifdef_stack.clone(), // スタック状態を引き継ぐ
+            parsed_headers: self.parsed_headers.clone(),
+            current_file_dir: self.current_file_dir.clone(),
+        };
+        
+        // 解析実行（ASTは破棄）
+        let _ = header_parser.parse();
+        
+        // 型テーブルとマクロ定義を反映
+        self.type_table = header_parser.type_table;
+        self.defined_macros = header_parser.defined_macros;
+        self.parsed_headers = header_parser.parsed_headers;
+        
+        // ディレクトリを復元
+        self.current_file_dir = old_dir;
     }
     
     /// 型テーブルへの参照を取得（ExpressionParserで使用）
