@@ -36,6 +36,9 @@ pub struct DiagnosticsConfig {
     pub check_local_var_type_prefix: bool,
     pub check_preprocessor_indent: bool,
     pub check_indent_style: bool,
+    pub check_include_dir: bool,
+    pub check_src_dir: bool,
+    pub exclude_paths: Vec<PathBuf>,
 }
 
 impl Default for DiagnosticsConfig {
@@ -51,6 +54,9 @@ impl Default for DiagnosticsConfig {
             check_local_var_type_prefix: true,
             check_preprocessor_indent: true,
             check_indent_style: true,
+            check_include_dir: true,
+            check_src_dir: true,
+            exclude_paths: Vec::new(),
         }
     }
 }
@@ -122,7 +128,7 @@ impl Default for PreprocessorConfig {
     fn default() -> Self {
         PreprocessorConfig {
             defines: Vec::new(),
-            include_paths: vec![PathBuf::from(".")],
+            include_paths: vec![PathBuf::from("include"), PathBuf::from(".")],
         }
     }
 }
@@ -134,6 +140,28 @@ impl PreprocessorConfig {
             // "MACRO" または "MACRO=value" の形式に対応
             def == macro_name || def.starts_with(&format!("{}=", macro_name))
         })
+    }
+
+    /// プロジェクトルートに対して include パスを解決する
+    pub fn resolved_with_root<P: AsRef<Path>>(&self, project_root: P) -> Self {
+        let root = project_root.as_ref();
+
+        let include_paths = self
+            .include_paths
+            .iter()
+            .map(|p| {
+                if p.is_absolute() {
+                    p.clone()
+                } else {
+                    root.join(p)
+                }
+            })
+            .collect();
+
+        PreprocessorConfig {
+            defines: self.defines.clone(),
+            include_paths,
+        }
     }
 }
 
@@ -149,7 +177,13 @@ impl ProjectConfig {
     /// プロジェクトルートから設定ファイルを検索
     /// 現在のディレクトリから親ディレクトリへ遡って "coding-guide.toml" を探す
     pub fn find_and_load<P: AsRef<Path>>(start_dir: P) -> Self {
+        Self::find_and_load_with_root(start_dir).config
+    }
+
+    /// 設定ファイルを検索してプロジェクトルート情報付きで返す
+    pub fn find_and_load_with_root<P: AsRef<Path>>(start_dir: P) -> LoadedProjectConfig {
         let mut current = start_dir.as_ref().to_path_buf();
+        let mut last_valid_root = current.clone();
         
         loop {
             let config_path = current.join("coding-guide.toml");
@@ -157,12 +191,30 @@ impl ProjectConfig {
                 match Self::load_from_file(&config_path) {
                     Ok(config) => {
                         eprintln!("Loaded config from: {}", config_path.display());
-                        return config;
+                        let project_root = config_path
+                            .parent()
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_else(|| current.clone());
+                        let project_root = project_root
+                            .canonicalize()
+                            .unwrap_or(project_root);
+
+                        return LoadedProjectConfig {
+                            config,
+                            project_root,
+                        };
                     }
                     Err(e) => {
                         eprintln!("Warning: Failed to parse {}: {}", config_path.display(), e);
                         eprintln!("Using default configuration");
-                        return Self::default();
+                        let project_root = current
+                            .canonicalize()
+                            .unwrap_or(current.clone());
+
+                        return LoadedProjectConfig {
+                            config: Self::default(),
+                            project_root,
+                        };
                     }
                 }
             }
@@ -172,10 +224,19 @@ impl ProjectConfig {
                 // ルートディレクトリに到達
                 break;
             }
+
+            last_valid_root = current.clone();
         }
         
         // 見つからない場合はデフォルト
-        Self::default()
+        let project_root = last_valid_root
+            .canonicalize()
+            .unwrap_or(last_valid_root);
+
+        LoadedProjectConfig {
+            config: Self::default(),
+            project_root,
+        }
     }
 
     /// DiagnosticConfigに変換
@@ -191,9 +252,54 @@ impl ProjectConfig {
             check_local_var_type_prefix: self.diagnostics.check_local_var_type_prefix,
             check_preprocessor_indent: self.diagnostics.check_preprocessor_indent,
             check_indent_style: self.diagnostics.check_indent_style,
+            check_include_dir: self.diagnostics.check_include_dir,
+            check_src_dir: self.diagnostics.check_src_dir,
             indent_style: self.formatting.indent_style.clone(),
             indent_width: self.formatting.indent_width,
+            project_root: None,
+            source_path: None,
+            exclude_paths: self.diagnostics.exclude_paths.clone(),
         }
+    }
+}
+
+/// 設定ファイルと検出されたプロジェクトルートをまとめて扱う構造体
+#[derive(Debug, Clone)]
+pub struct LoadedProjectConfig {
+    pub config: ProjectConfig,
+    pub project_root: PathBuf,
+}
+
+impl LoadedProjectConfig {
+    pub fn find_and_load_with_root<P: AsRef<Path>>(start_dir: P) -> Self {
+        ProjectConfig::find_and_load_with_root(start_dir)
+    }
+
+    /// DiagnosticConfigに変換（ソースファイルパス付き）
+    pub fn to_diagnostic_config_with_path<P: AsRef<Path>>(
+        &self,
+        source_path: Option<P>,
+    ) -> crate::diagnostics::DiagnosticConfig {
+        let project_root = self.project_root.clone();
+        let source_path = source_path.map(|p| {
+            let path = p.as_ref();
+            if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                project_root.join(path)
+            }
+        });
+
+        crate::diagnostics::DiagnosticConfig {
+            project_root: Some(project_root),
+            source_path,
+            ..self.config.to_diagnostic_config()
+        }
+    }
+
+    /// プリプロセッサ設定をプロジェクトルートに合わせて解決
+    pub fn to_preprocessor_config(&self) -> PreprocessorConfig {
+        self.config.preprocessor.resolved_with_root(&self.project_root)
     }
 }
 
@@ -263,5 +369,23 @@ check_preprocessor_indent = false
         assert!(default_config.diagnostics.check_global_var_type_prefix);
         assert!(default_config.diagnostics.check_local_var_type_prefix);
         assert!(default_config.diagnostics.check_preprocessor_indent);
+    }
+
+    #[test]
+    fn test_exclude_and_include_paths() {
+        let toml_str = r#"
+[diagnostics]
+exclude_paths = ["vendor", "generated/output.c"]
+check_include_dir = false
+
+[preprocessor]
+include_paths = ["deps/include"]
+"#;
+
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+
+        assert_eq!(config.diagnostics.exclude_paths.len(), 2);
+        assert!(!config.diagnostics.check_include_dir);
+        assert_eq!(config.preprocessor.include_paths, vec![PathBuf::from("deps/include")]);
     }
 }

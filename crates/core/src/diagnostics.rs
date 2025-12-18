@@ -1,6 +1,7 @@
 use crate::ast::{TranslationUnit, Item, Statement};
 use crate::span::Span;
-use crate::type_system::BaseType;
+use crate::type_system::{BaseType, TypeQualifier};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostic {
@@ -32,6 +33,11 @@ pub struct DiagnosticConfig {
     pub check_indent_style: bool,  // インデントスタイル（タブ/スペース）のチェック
     pub indent_style: crate::config::IndentStyle,  // 期待されるインデントスタイル
     pub indent_width: usize,  // スペース使用時のインデント幅
+    pub check_include_dir: bool, // includeディレクトリの存在チェック
+    pub check_src_dir: bool, // srcディレクトリの存在チェック
+    pub project_root: Option<PathBuf>, // プロジェクトルート
+    pub source_path: Option<PathBuf>, // 診断対象ファイル
+    pub exclude_paths: Vec<PathBuf>, // 診断を適用しないパス（プロジェクトルートからの相対パスを推奨）
 }
 
 impl Default for DiagnosticConfig {
@@ -49,8 +55,87 @@ impl Default for DiagnosticConfig {
             check_indent_style: true,
             indent_style: crate::config::IndentStyle::Spaces,
             indent_width: 4,
+            check_include_dir: true,
+            check_src_dir: true,
+            project_root: None,
+            source_path: None,
+            exclude_paths: Vec::new(),
         }
     }
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn resolve_with_root(path: &Path, root: Option<&Path>) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else if let Some(root) = root {
+        root.join(path)
+    } else {
+        path.to_path_buf()
+    }
+}
+
+fn is_path_excluded(config: &DiagnosticConfig) -> bool {
+    let Some(source_path) = config.source_path.as_ref() else {
+        return false;
+    };
+
+    let source_abs = normalize_path(source_path);
+    let root = config.project_root.as_deref();
+
+    for pattern in &config.exclude_paths {
+        let candidate = resolve_with_root(pattern, root);
+        let candidate_abs = normalize_path(&candidate);
+
+        if source_abs.starts_with(&candidate_abs) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn check_project_structure(config: &DiagnosticConfig) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    let Some(root) = config.project_root.as_ref() else {
+        return diagnostics;
+    };
+
+    if config.check_include_dir {
+        let include_dir = root.join("include");
+        if !include_dir.is_dir() {
+            diagnostics.push(Diagnostic {
+                span: Span::new(0, 0, 0, 0),
+                severity: DiagnosticSeverity::Warning,
+                message: format!(
+                    "プロジェクトルートに include ディレクトリが見つかりません: {}",
+                    include_dir.display()
+                ),
+                code: "CGH011".to_string(),
+            });
+        }
+    }
+
+    if config.check_src_dir {
+        let src_dir = root.join("src");
+        if !src_dir.is_dir() {
+            diagnostics.push(Diagnostic {
+                span: Span::new(0, 0, 0, 0),
+                severity: DiagnosticSeverity::Warning,
+                message: format!(
+                    "プロジェクトルートに src ディレクトリが見つかりません: {}",
+                    src_dir.display()
+                ),
+                code: "CGH012".to_string(),
+            });
+        }
+    }
+
+    diagnostics
 }
 
 /// TranslationUnitに対して診断を実行
@@ -60,7 +145,15 @@ pub fn diagnose(tu: &TranslationUnit, config: &DiagnosticConfig) -> Vec<Diagnost
 
 /// ソースコード付きで診断を実行（インデントスタイルチェック用）
 pub fn diagnose_with_source(tu: &TranslationUnit, config: &DiagnosticConfig, source: &str) -> Vec<Diagnostic> {
+    if is_path_excluded(config) {
+        return Vec::new();
+    }
+
     let mut diagnostics = Vec::new();
+
+    if config.check_include_dir || config.check_src_dir {
+        diagnostics.extend(check_project_structure(config));
+    }
     
     if config.check_file_header {
         if let Some(diag) = check_file_header(tu) {
@@ -642,63 +735,78 @@ fn to_uppercase_with_underscores(s: &str) -> String {
 /// グローバル変数の型名プレフィックスチェック
 fn check_global_var_type_prefix(tu: &TranslationUnit) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    
-    // 型名とそのプレフィックスのマッピング
-    let type_prefixes = [
-        ("VU8", "VU8_"),
-        ("VU16", "VU16_"),
-        ("VU32", "VU32_"),
-        ("VU64", "VU64_"),
-        ("VS8", "VS8_"),
-        ("VS16", "VS16_"),
-        ("VS32", "VS32_"),
-        ("VS64", "VS64_"),
-        ("CU8", "CU8_"),
-        ("CU16", "CU16_"),
-        ("CU32", "CU32_"),
-        ("CU64", "CU64_"),
-        ("CS8", "CS8_"),
-        ("CS16", "CS16_"),
-        ("CS32", "CS32_"),
-        ("CS64", "CS64_"),
-    ];
-    
+
+    // 型名と推奨プレフィックスを返す
+    fn expected_prefix(type_name: &str, is_const: bool) -> Option<&'static str> {
+        match (type_name, is_const) {
+            // 非const
+            ("VU8", false) => Some("VU8_"),
+            ("VU16", false) => Some("VU16_"),
+            ("VU32", false) => Some("VU32_"),
+            ("VU64", false) => Some("VU64_"),
+            ("VS8", false) => Some("VS8_"),
+            ("VS16", false) => Some("VS16_"),
+            ("VS32", false) => Some("VS32_"),
+            ("VS64", false) => Some("VS64_"),
+            // const付きはCU*/CS*
+            ("VU8", true) => Some("CU8_"),
+            ("VU16", true) => Some("CU16_"),
+            ("VU32", true) => Some("CU32_"),
+            ("VU64", true) => Some("CU64_"),
+            ("VS8", true) => Some("CS8_"),
+            ("VS16", true) => Some("CS16_"),
+            ("VS32", true) => Some("CS32_"),
+            ("VS64", true) => Some("CS64_"),
+            // const typedef済み（CU*/CS*）
+            ("CU8", _) => Some("CU8_"),
+            ("CU16", _) => Some("CU16_"),
+            ("CU32", _) => Some("CU32_"),
+            ("CU64", _) => Some("CU64_"),
+            ("CS8", _) => Some("CS8_"),
+            ("CS16", _) => Some("CS16_"),
+            ("CS32", _) => Some("CS32_"),
+            ("CS64", _) => Some("CS64_"),
+            _ => None,
+        }
+    }
+
     for item in &tu.items {
         if let Item::VarDecl { span, var_name, var_type, text, .. } = item {
-            if var_type.is_some() {
-                // textから型名を抽出（最初の空白までが型名）
-                let type_name = text.trim().split_whitespace().next().unwrap_or("");
-                
-                // 型名が該当するかチェック
-                for (type_str, prefix) in &type_prefixes {
-                    if type_name == *type_str && !var_name.starts_with(prefix) {
-                        let suggested_name = if var_name.starts_with(prefix.trim_end_matches('_')) {
-                            // 既にプレフィックス部分はあるが_がない場合
-                            format!("{}{}", prefix, &var_name[prefix.trim_end_matches('_').len()..])
+            if let Some(ty) = var_type {
+                // typedef名があればそれを優先
+                let type_name = ty
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| text.trim().split_whitespace().next().unwrap_or("").to_string());
+                let is_const = ty.base_qualifiers.contains(&TypeQualifier::Const);
+
+                if let Some(prefix) = expected_prefix(&type_name, is_const) {
+                    if !var_name.starts_with(prefix) {
+                        let trimmed = prefix.trim_end_matches('_');
+                        let suggested_name = if var_name.starts_with(trimmed) {
+                            format!("{}{}", prefix, &var_name[trimmed.len()..])
                         } else {
-                            // プレフィックスがない場合
                             format!("{}{}", prefix, var_name)
                         };
-                        
+
                         diagnostics.push(Diagnostic {
                             span: span.clone(),
                             severity: DiagnosticSeverity::Warning,
                             message: format!(
                                 "型 '{}' のグローバル変数 '{}' は '{}' で始まることを推奨します。例: '{}'",
-                                type_str,
+                                type_name,
                                 var_name,
                                 prefix,
                                 suggested_name
                             ),
                             code: "CGH007".to_string(),
                         });
-                        break;
                     }
                 }
             }
         }
     }
-    
+
     diagnostics
 }
 

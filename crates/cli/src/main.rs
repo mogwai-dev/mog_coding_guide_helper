@@ -1,7 +1,7 @@
 use std::fs;
 use std::env;
 use std::path::Path;
-use coding_guide_helper_core::{Lexer, Parser, Formatter, Item, diagnose, DiagnosticConfig, DiagnosticSeverity, ProjectConfig};
+use coding_guide_helper_core::{Lexer, Parser, Formatter, Item, diagnose, DiagnosticConfig, DiagnosticSeverity, LoadedProjectConfig};
 use coding_guide_helper_core::token::*;
 
 fn main() {
@@ -23,15 +23,19 @@ fn main() {
     }
     
     let filename = filename.as_deref().unwrap_or("example.txt");
+    let source_path = Path::new(filename)
+        .canonicalize()
+        .unwrap_or_else(|_| Path::new(filename).to_path_buf());
     
     // プロジェクト設定を読み込む
-    let config = if let Some(root) = project_root {
-        ProjectConfig::find_and_load(&root)
+    let loaded_config = if let Some(root) = project_root {
+        LoadedProjectConfig::find_and_load_with_root(&root)
     } else {
         // ファイルのディレクトリから検索
-        let file_dir = Path::new(filename).parent().unwrap_or(Path::new("."));
-        ProjectConfig::find_and_load(file_dir)
+        let file_dir = source_path.parent().unwrap_or(Path::new("."));
+        LoadedProjectConfig::find_and_load_with_root(file_dir)
     };
+    let config = &loaded_config.config;
     
     println!("[Project Configuration]");
     println!("Check file header: {}", config.diagnostics.check_file_header);
@@ -39,9 +43,9 @@ fn main() {
     println!();
     
     lexer_sample(filename);
-    parser_sample(filename);
-    diagnostics_sample_with_config(filename, &config);
-    formatter_sample(filename);
+    parser_sample(filename, &loaded_config, &source_path);
+    diagnostics_sample_with_config(filename, &loaded_config, &source_path);
+    formatter_sample(filename, &loaded_config, &source_path);
 }
 
 // lexer_sample() 関数を修正
@@ -165,11 +169,14 @@ fn lexer_sample(filename: &str) {
     }
 }
 
-fn parser_sample(filename: &str) {
+fn parser_sample(filename: &str, config: &LoadedProjectConfig, source_path: &std::path::Path) {
     println!("\n[Parser Sample]");
     let contents = fs::read_to_string(filename).unwrap();
     let lx = Lexer::new(&contents);
-    let mut parser = Parser::new(lx);
+    let mut parser = Parser::new_with_config(lx, config.to_preprocessor_config());
+    if let Some(dir) = source_path.parent() {
+        parser.set_current_file_dir(dir);
+    }
     let tu = parser.parse();
 
     for item in &tu.items {
@@ -221,6 +228,7 @@ fn print_item(item: &Item, indent: usize) {
     }
 }
 
+#[allow(dead_code)]
 fn diagnostics_sample(filename: &str) {
     println!("\n[Diagnostics Sample]");
     let contents = fs::read_to_string(filename).unwrap();
@@ -252,14 +260,21 @@ fn diagnostics_sample(filename: &str) {
     }
 }
 
-fn diagnostics_sample_with_config(filename: &str, project_config: &ProjectConfig) {
+fn diagnostics_sample_with_config(
+    filename: &str,
+    project_config: &LoadedProjectConfig,
+    source_path: &std::path::Path,
+) {
     println!("\n[Diagnostics Sample]");
     let contents = fs::read_to_string(filename).unwrap();
     let lx = Lexer::new(&contents);
-    let mut parser = Parser::new(lx);
+    let mut parser = Parser::new_with_config(lx, project_config.to_preprocessor_config());
+    if let Some(dir) = source_path.parent() {
+        parser.set_current_file_dir(dir);
+    }
     let tu = parser.parse();
     
-    let config = project_config.to_diagnostic_config();
+    let config = project_config.to_diagnostic_config_with_path(Some(source_path));
     let diagnostics = diagnose(&tu, &config);
     
     if diagnostics.is_empty() {
@@ -283,11 +298,14 @@ fn diagnostics_sample_with_config(filename: &str, project_config: &ProjectConfig
     }
 }
 
-fn formatter_sample(filename: &str) {
+fn formatter_sample(filename: &str, project_config: &LoadedProjectConfig, source_path: &std::path::Path) {
     println!("\n[Formatter Sample]");
     let contents = fs::read_to_string(filename).unwrap();
     let lx = Lexer::new(&contents);
-    let mut parser = Parser::new(lx);
+    let mut parser = Parser::new_with_config(lx, project_config.to_preprocessor_config());
+    if let Some(dir) = source_path.parent() {
+        parser.set_current_file_dir(dir);
+    }
     let tu = parser.parse();
     
     let formatter = Formatter::new();

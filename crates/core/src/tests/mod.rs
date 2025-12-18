@@ -22,6 +22,7 @@ mod type_parser_tests;
 mod diagnostic_type_tests;
 mod diagnostic_macro_tests;
 mod diagnostic_global_var_tests;
+mod diagnostic_project_structure_tests;
 mod debug_typedef_var;
 mod header_include_tests;
 mod debug_ifdef_newline;

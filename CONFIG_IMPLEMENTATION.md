@@ -10,12 +10,18 @@ check_file_header = true
 check_function_format = true
 check_type_safety = true
 check_storage_class_order = true
+check_include_dir = true
+check_src_dir = true
+exclude_paths = []
 
 [file_header]
 required_fields = ["Author", "Date", "Purpose"]
 
 [formatting]
 add_file_header = true
+
+[preprocessor]
+include_paths = ["include", "."]
 ```
 
 ### 2. 実装したモジュール
@@ -25,10 +31,12 @@ add_file_header = true
   - DiagnosticsConfig: 診断ルールの有効/無効
   - FileHeaderConfig: ファイルヘッダー要件
   - FormattingConfig: フォーマット動作
+  - LoadedProjectConfig: 検出したプロジェクトルートと設定をまとめ、診断/プリプロセッサ設定へ渡す
   
 - **find_and_load()**: ディレクトリツリーを遡って設定ファイルを検索
 - **load_from_file()**: TOML ファイルをパース
-- **to_diagnostic_config()**: DiagnosticConfig への変換
+- **to_diagnostic_config()**: DiagnosticConfig への変換（project_root/source_path 付きの派生メソッドあり）
+- **PreprocessorConfig::resolved_with_root()**: `include_paths` をプロジェクトルートからの絶対パスに解決
 
 - すべての設定にデフォルト値あり（serde の `#[serde(default)]`）
 - 設定ファイルが見つからない場合はデフォルト設定を使用

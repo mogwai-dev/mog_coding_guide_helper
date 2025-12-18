@@ -25,7 +25,7 @@ pub use formatter::Formatter;
 pub use diagnostics::{Diagnostic, DiagnosticSeverity, DiagnosticConfig, diagnose};
 pub use trivia::{Comment, Trivia};
 pub use type_table::TypeTable;
-pub use config::ProjectConfig;
+pub use config::{ProjectConfig, LoadedProjectConfig, PreprocessorConfig};
 
 #[cfg(test)]
 mod tests;

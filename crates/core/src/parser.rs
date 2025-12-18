@@ -87,6 +87,11 @@ impl Parser {
             current_file_dir: PathBuf::from("."),
         }
     }
+
+    /// 解析対象ファイルのディレクトリを設定する
+    pub fn set_current_file_dir<P: Into<PathBuf>>(&mut self, dir: P) {
+        self.current_file_dir = dir.into();
+    }
     
     /// 現在のブランチがアクティブか判定（型登録に使用）
     fn is_current_branch_active(&self) -> bool {

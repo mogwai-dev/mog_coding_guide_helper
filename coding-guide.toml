@@ -7,6 +7,9 @@ check_global_var_type_prefix = true
 check_local_var_type_prefix = true
 check_preprocessor_indent = true
 check_indent_style = true
+check_include_dir = true
+check_src_dir = true
+exclude_paths = []
 
 [file_header]
 required_fields = ["Author", "Date"]
@@ -15,3 +18,6 @@ required_fields = ["Author", "Date"]
 add_file_header = false
 indent_style = "spaces"  # "tabs" or "spaces"
 indent_width = 4         # スペース使用時のインデント幅
+
+[preprocessor]
+include_paths = ["include", "."]

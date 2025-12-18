@@ -1,14 +1,14 @@
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
-use coding_guide_helper_core::{Lexer, Parser, diagnose, DiagnosticSeverity, ProjectConfig};
+use coding_guide_helper_core::{Lexer, Parser, diagnose, DiagnosticSeverity, LoadedProjectConfig};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Debug)]
 struct Backend {
     client: Client,
-    config: Arc<RwLock<ProjectConfig>>,
+    config: Arc<RwLock<LoadedProjectConfig>>,
 }
 
 #[tower_lsp::async_trait]
@@ -18,12 +18,18 @@ impl LanguageServer for Backend {
         if let Some(workspace_folders) = params.workspace_folders {
             if let Some(folder) = workspace_folders.first() {
                 if let Ok(path) = folder.uri.to_file_path() {
-                    let loaded_config = ProjectConfig::find_and_load(&path);
+                    let loaded_config = LoadedProjectConfig::find_and_load_with_root(&path);
                     let mut config = self.config.write().await;
                     *config = loaded_config;
                     
                     self.client
-                        .log_message(MessageType::INFO, format!("Loaded config from workspace: {}", path.display()))
+                        .log_message(
+                            MessageType::INFO,
+                            format!(
+                                "Loaded config from workspace: {}",
+                                path.display()
+                            ),
+                        )
                         .await;
                 }
             }
@@ -86,8 +92,14 @@ impl LanguageServer for Backend {
         // URIからファイルパスを取得してファイルを読み込む
         if let Ok(path) = uri.to_file_path() {
             if let Ok(source) = std::fs::read_to_string(&path) {
-                let lexer = Lexer::new(&source);
-                let mut parser = Parser::new(lexer);
+                let config = self.config.read().await;
+                let mut parser = Parser::new_with_config(
+                    Lexer::new(&source),
+                    config.to_preprocessor_config(),
+                );
+                if let Some(parent) = path.parent() {
+                    parser.set_current_file_dir(parent);
+                }
                 let tu = parser.parse();
                 
                 let formatter = coding_guide_helper_core::Formatter::new();
@@ -121,13 +133,19 @@ impl LanguageServer for Backend {
 impl Backend {
     async fn on_change(&self, uri: Url, text: String) {
         // パースして診断を実行
-        let lexer = Lexer::new(&text);
-        let mut parser = Parser::new(lexer);
+        let config = self.config.read().await;
+
+        let mut parser = Parser::new_with_config(Lexer::new(&text), config.to_preprocessor_config());
+        let source_path = uri.to_file_path().ok();
+        if let Some(path) = &source_path {
+            if let Some(parent) = path.parent() {
+                parser.set_current_file_dir(parent);
+            }
+        }
         let tu = parser.parse();
         
         // プロジェクト設定から診断設定を取得
-        let project_config = self.config.read().await;
-        let config = project_config.to_diagnostic_config();
+        let config = config.to_diagnostic_config_with_path(source_path.as_ref());
         let diagnostics = diagnose(&tu, &config);
         
         // LSP Diagnosticに変換
@@ -176,7 +194,9 @@ async fn main() {
 
     let (service, socket) = LspService::new(|client| Backend { 
         client,
-        config: Arc::new(RwLock::new(ProjectConfig::default())),
+        config: Arc::new(RwLock::new(LoadedProjectConfig::find_and_load_with_root(
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+        ))),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
 }

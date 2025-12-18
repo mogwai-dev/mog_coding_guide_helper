@@ -278,3 +278,44 @@ CS64 CS64_p;
     assert_eq!(diagnostics.len(), 0);
 }
 
+/// const付きVU/VS型はCU*/CS*で始まること
+#[test]
+fn test_const_prefers_c_prefix() {
+    let source = r#"
+typedef unsigned char VU8;
+const VU8 g_counter;
+typedef signed int VS32;
+const VS32 g_value;
+"#;
+
+    let lexer = Lexer::new(source);
+    let mut parser = Parser::new(lexer);
+    let tu = parser.parse();
+
+    let diagnostics = diagnose(&tu, &type_prefix_config(true));
+
+    assert_eq!(diagnostics.len(), 2);
+    assert!(diagnostics.iter().all(|d| d.code == "CGH007"));
+    assert!(diagnostics.iter().any(|d| d.message.contains("CU8_")));
+    assert!(diagnostics.iter().any(|d| d.message.contains("CS32_")));
+}
+
+/// const付きVU/VS型で正しいCU*/CS*プレフィクスならOK
+#[test]
+fn test_const_c_prefix_ok() {
+    let source = r#"
+typedef unsigned long long VU64;
+const VU64 CU64_value;
+typedef signed short VS16;
+const VS16 CS16_data;
+"#;
+
+    let lexer = Lexer::new(source);
+    let mut parser = Parser::new(lexer);
+    let tu = parser.parse();
+
+    let diagnostics = diagnose(&tu, &type_prefix_config(true));
+
+    assert!(diagnostics.is_empty());
+}
+
