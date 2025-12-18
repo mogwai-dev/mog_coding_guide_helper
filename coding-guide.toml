@@ -4,6 +4,7 @@ check_function_format = true
 check_type_safety = true
 check_storage_class_order = true
 check_global_var_type_prefix = true
+check_local_var_type_prefix = true
 check_preprocessor_indent = true
 check_indent_style = true
 

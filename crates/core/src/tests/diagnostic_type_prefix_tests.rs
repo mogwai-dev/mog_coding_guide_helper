@@ -2,6 +2,20 @@ use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticSeverity};
 
+fn type_prefix_config(enable: bool) -> DiagnosticConfig {
+    DiagnosticConfig {
+        check_file_header: false,
+        check_function_format: false,
+        check_type_safety: false,
+        check_storage_class_order: false,
+        check_macro_parentheses: false,
+        check_global_var_naming: false,
+        check_global_var_type_prefix: enable,
+        check_local_var_type_prefix: false,
+        ..DiagnosticConfig::default()
+    }
+}
+
 /// VU8型のプレフィックステスト
 #[test]
 fn test_type_prefix_vu8() {
@@ -26,15 +40,7 @@ fn test_type_prefix_vu8() {
         }
     }
     
-    let config = DiagnosticConfig {
-        check_file_header: false,
-        check_function_format: false,
-        check_type_safety: false,
-        check_storage_class_order: false,
-        check_macro_parentheses: false,
-        check_global_var_naming: false,
-        check_global_var_type_prefix: true,
-    };
+    let config = type_prefix_config(true);
     
     let diagnostics = diagnose(&tu, &config);
     println!("Diagnostics: {}", diagnostics.len());
@@ -60,15 +66,7 @@ VU16 value;
     let mut parser = Parser::new(lexer);
     let tu = parser.parse();
     
-    let config = DiagnosticConfig {
-        check_file_header: false,
-        check_function_format: false,
-        check_type_safety: false,
-        check_storage_class_order: false,
-        check_macro_parentheses: false,
-        check_global_var_naming: false,
-        check_global_var_type_prefix: true,
-    };
+    let config = type_prefix_config(true);
     
     let diagnostics = diagnose(&tu, &config);
     
@@ -89,15 +87,7 @@ VS32 result;
     let mut parser = Parser::new(lexer);
     let tu = parser.parse();
     
-    let config = DiagnosticConfig {
-        check_file_header: false,
-        check_function_format: false,
-        check_type_safety: false,
-        check_storage_class_order: false,
-        check_macro_parentheses: false,
-        check_global_var_naming: false,
-        check_global_var_type_prefix: true,
-    };
+    let config = type_prefix_config(true);
     
     let diagnostics = diagnose(&tu, &config);
     
@@ -118,15 +108,7 @@ CU8 byte;
     let mut parser = Parser::new(lexer);
     let tu = parser.parse();
     
-    let config = DiagnosticConfig {
-        check_file_header: false,
-        check_function_format: false,
-        check_type_safety: false,
-        check_storage_class_order: false,
-        check_macro_parentheses: false,
-        check_global_var_naming: false,
-        check_global_var_type_prefix: true,
-    };
+    let config = type_prefix_config(true);
     
     let diagnostics = diagnose(&tu, &config);
     
@@ -147,15 +129,7 @@ CS64 long_val;
     let mut parser = Parser::new(lexer);
     let tu = parser.parse();
     
-    let config = DiagnosticConfig {
-        check_file_header: false,
-        check_function_format: false,
-        check_type_safety: false,
-        check_storage_class_order: false,
-        check_macro_parentheses: false,
-        check_global_var_naming: false,
-        check_global_var_type_prefix: true,
-    };
+    let config = type_prefix_config(true);
     
     let diagnostics = diagnose(&tu, &config);
     
@@ -182,15 +156,7 @@ CU8 CU8_byte;
     let mut parser = Parser::new(lexer);
     let tu = parser.parse();
     
-    let config = DiagnosticConfig {
-        check_file_header: false,
-        check_function_format: false,
-        check_type_safety: false,
-        check_storage_class_order: false,
-        check_macro_parentheses: false,
-        check_global_var_naming: false,
-        check_global_var_type_prefix: true,
-    };
+    let config = type_prefix_config(true);
     
     let diagnostics = diagnose(&tu, &config);
     
@@ -215,15 +181,7 @@ CU32 wrong_name;
     let mut parser = Parser::new(lexer);
     let tu = parser.parse();
     
-    let config = DiagnosticConfig {
-        check_file_header: false,
-        check_function_format: false,
-        check_type_safety: false,
-        check_storage_class_order: false,
-        check_macro_parentheses: false,
-        check_global_var_naming: false,
-        check_global_var_type_prefix: true,
-    };
+    let config = type_prefix_config(true);
     
     let diagnostics = diagnose(&tu, &config);
     
@@ -244,15 +202,7 @@ char* str;
     let mut parser = Parser::new(lexer);
     let tu = parser.parse();
     
-    let config = DiagnosticConfig {
-        check_file_header: false,
-        check_function_format: false,
-        check_type_safety: false,
-        check_storage_class_order: false,
-        check_macro_parentheses: false,
-        check_global_var_naming: false,
-        check_global_var_type_prefix: true,
-    };
+    let config = type_prefix_config(true);
     
     let diagnostics = diagnose(&tu, &config);
     
@@ -271,15 +221,7 @@ VU16 value;
     let mut parser = Parser::new(lexer);
     let tu = parser.parse();
     
-    let config = DiagnosticConfig {
-        check_file_header: false,
-        check_function_format: false,
-        check_type_safety: false,
-        check_storage_class_order: false,
-        check_macro_parentheses: false,
-        check_global_var_naming: false,
-        check_global_var_type_prefix: false,
-    };
+    let config = type_prefix_config(false);
     
     let diagnostics = diagnose(&tu, &config);
     
@@ -328,15 +270,7 @@ CS64 CS64_p;
     let mut parser = Parser::new(lexer);
     let tu = parser.parse();
     
-    let config = DiagnosticConfig {
-        check_file_header: false,
-        check_function_format: false,
-        check_type_safety: false,
-        check_storage_class_order: false,
-        check_macro_parentheses: false,
-        check_global_var_naming: false,
-        check_global_var_type_prefix: true,
-    };
+    let config = type_prefix_config(true);
     
     let diagnostics = diagnose(&tu, &config);
     

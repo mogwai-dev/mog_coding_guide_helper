@@ -33,6 +33,7 @@ pub struct DiagnosticsConfig {
     pub check_macro_parentheses: bool,
     pub check_global_var_naming: bool,
     pub check_global_var_type_prefix: bool,
+    pub check_local_var_type_prefix: bool,
     pub check_preprocessor_indent: bool,
     pub check_indent_style: bool,
 }
@@ -47,6 +48,7 @@ impl Default for DiagnosticsConfig {
             check_macro_parentheses: true,
             check_global_var_naming: true,
             check_global_var_type_prefix: true,
+            check_local_var_type_prefix: true,
             check_preprocessor_indent: true,
             check_indent_style: true,
         }
@@ -186,6 +188,7 @@ impl ProjectConfig {
             check_macro_parentheses: self.diagnostics.check_macro_parentheses,
             check_global_var_naming: self.diagnostics.check_global_var_naming,
             check_global_var_type_prefix: self.diagnostics.check_global_var_type_prefix,
+            check_local_var_type_prefix: self.diagnostics.check_local_var_type_prefix,
             check_preprocessor_indent: self.diagnostics.check_preprocessor_indent,
             check_indent_style: self.diagnostics.check_indent_style,
             indent_style: self.formatting.indent_style.clone(),
@@ -246,16 +249,19 @@ check_file_header = false
         let toml_str = r#"
 [diagnostics]
 check_global_var_type_prefix = false
+check_local_var_type_prefix = false
 check_preprocessor_indent = false
 "#;
         
         let config: ProjectConfig = toml::from_str(toml_str).unwrap();
         assert!(!config.diagnostics.check_global_var_type_prefix);
+        assert!(!config.diagnostics.check_local_var_type_prefix);
         assert!(!config.diagnostics.check_preprocessor_indent);
         
         // デフォルト値の確認
         let default_config = ProjectConfig::default();
         assert!(default_config.diagnostics.check_global_var_type_prefix);
+        assert!(default_config.diagnostics.check_local_var_type_prefix);
         assert!(default_config.diagnostics.check_preprocessor_indent);
     }
 }

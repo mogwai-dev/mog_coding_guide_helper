@@ -142,6 +142,8 @@ impl PointerLayer {
 pub struct Type {
     /// 基本型 (int, char, など)
     pub base_type: BaseType,
+    /// typedef名（あれば）
+    pub alias: Option<String>,
     /// 基本型に適用される修飾子
     pub base_qualifiers: Vec<TypeQualifier>,
     /// ポインタ層 (最内層から順)
@@ -155,6 +157,7 @@ impl Type {
     pub fn new(base_type: BaseType, span: Span) -> Self {
         Type {
             base_type,
+            alias: None,
             base_qualifiers: Vec::new(),
             pointer_layers: Vec::new(),
             span,
@@ -169,6 +172,7 @@ impl Type {
     ) -> Self {
         Type {
             base_type,
+            alias: None,
             base_qualifiers,
             pointer_layers: Vec::new(),
             span,
@@ -184,6 +188,7 @@ impl Type {
     ) -> Self {
         Type {
             base_type,
+            alias: None,
             base_qualifiers,
             pointer_layers,
             span,
@@ -222,7 +227,11 @@ impl Type {
         }
 
         // 基本型
-        result.push_str(self.base_type.to_string());
+        if let Some(alias) = &self.alias {
+            result.push_str(alias);
+        } else {
+            result.push_str(self.base_type.to_string());
+        }
 
         // ポインタ層
         for layer in &self.pointer_layers {

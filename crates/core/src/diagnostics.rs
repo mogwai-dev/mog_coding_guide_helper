@@ -1,4 +1,4 @@
-use crate::ast::{TranslationUnit, Item};
+use crate::ast::{TranslationUnit, Item, Statement};
 use crate::span::Span;
 use crate::type_system::BaseType;
 
@@ -27,6 +27,7 @@ pub struct DiagnosticConfig {
     pub check_macro_parentheses: bool,  // マクロ定義の値が括弧で囲まれているかチェック
     pub check_global_var_naming: bool,  // グローバル変数の命名規則チェック（大文字）
     pub check_global_var_type_prefix: bool,  // グローバル変数の型名プレフィックスチェック
+    pub check_local_var_type_prefix: bool,  // ローカル変数の型名プレフィックスチェック
     pub check_preprocessor_indent: bool,  // プリプロセッサディレクティブのインデントチェック
     pub check_indent_style: bool,  // インデントスタイル（タブ/スペース）のチェック
     pub indent_style: crate::config::IndentStyle,  // 期待されるインデントスタイル
@@ -43,6 +44,7 @@ impl Default for DiagnosticConfig {
             check_macro_parentheses: true,
             check_global_var_naming: true,
             check_global_var_type_prefix: true,
+            check_local_var_type_prefix: true,
             check_preprocessor_indent: true,
             check_indent_style: true,
             indent_style: crate::config::IndentStyle::Spaces,
@@ -84,6 +86,10 @@ pub fn diagnose_with_source(tu: &TranslationUnit, config: &DiagnosticConfig, sou
     
     if config.check_global_var_type_prefix {
         diagnostics.extend(check_global_var_type_prefix(tu));
+    }
+
+    if config.check_local_var_type_prefix {
+        diagnostics.extend(check_local_var_type_prefix(tu));
     }
     
     if config.check_preprocessor_indent {
@@ -693,6 +699,95 @@ fn check_global_var_type_prefix(tu: &TranslationUnit) -> Vec<Diagnostic> {
         }
     }
     
+    diagnostics
+}
+
+/// ローカル変数の型名プレフィックスチェック
+fn check_local_var_type_prefix(tu: &TranslationUnit) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    // 型名と推奨プレフィックスのマッピング
+    let type_prefixes = [
+        ("VU8", "u8_"),
+        ("VU16", "u16_"),
+        ("VU32", "u32_"),
+        ("VU64", "u64_"),
+        ("VS8", "s8_"),
+        ("VS16", "s16_"),
+        ("VS32", "s32_"),
+        ("VS64", "s64_"),
+    ];
+
+    fn visit_statements(
+        statements: &[Statement],
+        diagnostics: &mut Vec<Diagnostic>,
+        type_prefixes: &[(&str, &str)],
+    ) {
+        for stmt in statements {
+            match stmt {
+                Statement::VarDecl { var_type, var_name, span, .. } => {
+                    if let Some(ty) = var_type {
+                        let type_name = if let Some(alias) = &ty.alias {
+                            alias.clone()
+                        } else {
+                            ty.to_string()
+                        };
+
+                        for (type_str, prefix) in type_prefixes {
+                            if type_name == *type_str && !var_name.starts_with(prefix) {
+                                let trimmed = prefix.trim_end_matches('_');
+                                let suggested_name = if var_name.starts_with(trimmed) {
+                                    format!("{}{}", prefix, &var_name[trimmed.len()..])
+                                } else {
+                                    format!("{}{}", prefix, var_name)
+                                };
+
+                                diagnostics.push(Diagnostic {
+                                    span: span.clone(),
+                                    severity: DiagnosticSeverity::Warning,
+                                    message: format!(
+                                        "型 '{}' のローカル変数 '{}' は '{}' で始まることを推奨します。例: '{}'",
+                                        type_str,
+                                        var_name,
+                                        prefix,
+                                        suggested_name
+                                    ),
+                                    code: "CGH010".to_string(),
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+                Statement::If { then_block, else_block, .. } => {
+                    visit_statements(then_block, diagnostics, type_prefixes);
+                    if let Some(else_block) = else_block {
+                        visit_statements(else_block, diagnostics, type_prefixes);
+                    }
+                }
+                Statement::While { body, .. } => {
+                    visit_statements(body, diagnostics, type_prefixes);
+                }
+                Statement::For { init, body, .. } => {
+                    if let Some(init_stmt) = init.as_deref() {
+                        visit_statements(std::slice::from_ref(init_stmt), diagnostics, type_prefixes);
+                    }
+                    visit_statements(body, diagnostics, type_prefixes);
+                }
+                Statement::Block { statements, .. } => {
+                    visit_statements(statements, diagnostics, type_prefixes);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    for item in &tu.items {
+        if let Item::FunctionDecl { body: Some(statements), .. } = item {
+            visit_statements(statements, &mut diagnostics, &type_prefixes);
+        }
+    }
+
     diagnostics
 }
 

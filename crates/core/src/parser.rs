@@ -1590,6 +1590,8 @@ impl Parser {
     /// Returns None if the current token doesn't start a type
     pub fn parse_type(&mut self) -> Option<Type> {
         let mut base_qualifiers = Vec::new();
+        let mut inherited_pointer_layers: Vec<crate::type_system::PointerLayer> = Vec::new();
+        let mut alias_name: Option<String> = None;
         let base_type: Option<BaseType>;
         let mut last_span: Option<Span>;
 
@@ -1681,6 +1683,23 @@ impl Parser {
                     base_type = Some(BaseType::Enum(enum_name));
                     break;
                 }
+                Token::Ident(IdentToken { name, .. }) => {
+                    // typedef済みの型名を許容
+                    if self.type_table.is_type_name(&name) {
+                        alias_name = Some(name.clone());
+                        if let Some(type_info) = self.type_table.get_type_info(&name) {
+                            base_qualifiers.extend(type_info.base_qualifiers.clone());
+                            inherited_pointer_layers = type_info.pointer_layers.clone();
+                            base_type = Some(type_info.base_type.clone());
+                        } else {
+                            base_type = Some(BaseType::Int);
+                        }
+                        break;
+                    } else {
+                        // 型名でない識別子
+                        return None;
+                    }
+                }
                 _ => {
                     // Not a type token - we're done (or invalid)
                     return None;
@@ -1692,7 +1711,7 @@ impl Parser {
         let mut end_span = last_span?;
 
         // フェーズ2: ポインタ層を解析（アスタリスクと修飾子）
-        let mut pointer_layers = Vec::new();
+        let mut pointer_layers = inherited_pointer_layers;
         
         'pointer_loop: loop {
             // peek_token()を使用して、ポインタでない場合はトークンを消費しない
@@ -1831,18 +1850,23 @@ impl Parser {
             }
         }
 
-        Some(Type::with_pointers(
+        let mut ty = Type::with_pointers(
             base_type,
             base_qualifiers,
             pointer_layers,
             end_span,
-        ))
+        );
+
+        ty.alias = alias_name;
+        Some(ty)
     }
     
     /// typedef宣言用：型と型名（declarator）を両方パース
     /// parse_type()と違い、型の後の識別子も返す
     pub fn parse_type_and_declarator(&mut self) -> Option<(Type, String)> {
         let mut base_qualifiers = Vec::new();
+        let mut inherited_pointer_layers: Vec<crate::type_system::PointerLayer> = Vec::new();
+        let mut alias_name: Option<String> = None;
         let base_type: Option<BaseType>;
         let mut last_span: Option<Span>;
 
@@ -1958,6 +1982,21 @@ impl Parser {
                         }
                     }
                 }
+                Token::Ident(IdentToken { name, .. }) => {
+                    if self.type_table.is_type_name(&name) {
+                        alias_name = Some(name.clone());
+                        if let Some(type_info) = self.type_table.get_type_info(&name) {
+                            base_qualifiers.extend(type_info.base_qualifiers.clone());
+                            inherited_pointer_layers = type_info.pointer_layers.clone();
+                            base_type = Some(type_info.base_type.clone());
+                        } else {
+                            base_type = Some(BaseType::Int);
+                        }
+                        break;
+                    } else {
+                        return None;
+                    }
+                }
                 _ => {
                     return None;
                 }
@@ -1968,7 +2007,7 @@ impl Parser {
         let mut end_span = last_span?;
 
         // フェーズ2: ポインタ層を解析
-        let mut pointer_layers = Vec::new();
+        let mut pointer_layers = inherited_pointer_layers;
         let mut declarator_name: Option<String> = None;
         
         'pointer_loop: loop {
@@ -2047,12 +2086,13 @@ impl Parser {
             }
         }
 
-        let type_info = Type::with_pointers(
+        let mut type_info = Type::with_pointers(
             base_type,
             base_qualifiers,
             pointer_layers,
             end_span,
         );
+        type_info.alias = alias_name;
         
         declarator_name.map(|name| (type_info, name))
     }
