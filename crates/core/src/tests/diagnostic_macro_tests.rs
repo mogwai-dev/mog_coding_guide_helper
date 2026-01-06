@@ -1,6 +1,6 @@
 use crate::lexer::Lexer;
 use crate::parser::Parser;
-use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticSeverity};
+use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticSeverity, DiagnosticCode};
 
 #[test]
 fn test_macro_without_parentheses() {
@@ -17,7 +17,7 @@ fn test_macro_without_parentheses() {
     let diagnostics = diagnose(&tu, &config);
     
     // CGH005の警告が出ることを確認
-    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH005").collect();
+    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH005")).collect();
     assert_eq!(macro_warnings.len(), 1);
     assert_eq!(macro_warnings[0].severity, DiagnosticSeverity::Warning);
     assert!(macro_warnings[0].message.contains("MAX"));
@@ -38,7 +38,7 @@ fn test_macro_with_parentheses() {
     let diagnostics = diagnose(&tu, &config);
     
     // 警告が出ないことを確認
-    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH005").collect();
+    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH005")).collect();
     assert_eq!(macro_warnings.len(), 0);
 }
 
@@ -58,7 +58,7 @@ fn test_macro_simple_literal() {
     let diagnostics = diagnose(&tu, &config);
     
     // 単純なリテラルは警告が出ない
-    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH005").collect();
+    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH005")).collect();
     assert_eq!(macro_warnings.len(), 0);
 }
 
@@ -76,7 +76,7 @@ fn test_macro_function_like() {
     let diagnostics = diagnose(&tu, &config);
     
     // 関数マクロは警告対象外（引数に括弧が必要）
-    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH005").collect();
+    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH005")).collect();
     assert_eq!(macro_warnings.len(), 0);
 }
 
@@ -97,7 +97,7 @@ fn test_macro_multiple_operators() {
     let diagnostics = diagnose(&tu, &config);
     
     // 3つの警告が出る
-    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH005").collect();
+    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH005")).collect();
     assert_eq!(macro_warnings.len(), 3);
 }
 
@@ -116,7 +116,7 @@ fn test_macro_config_disabled() {
     let diagnostics = diagnose(&tu, &config);
     
     // チェックが無効なので警告は出ない
-    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH005").collect();
+    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH005")).collect();
     assert_eq!(macro_warnings.len(), 0);
 }
 
@@ -136,6 +136,6 @@ fn test_macro_in_conditional_block() {
     let diagnostics = diagnose(&tu, &config);
     
     // 条件コンパイルブロック内のマクロもチェックされる
-    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH005").collect();
+    let macro_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH005")).collect();
     assert_eq!(macro_warnings.len(), 1);
 }

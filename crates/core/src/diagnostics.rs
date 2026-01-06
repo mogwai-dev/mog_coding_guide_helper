@@ -1,14 +1,51 @@
-use crate::ast::{TranslationUnit, Item, Statement};
+﻿use crate::ast::{TranslationUnit, Item, Statement};
 use crate::span::Span;
 use crate::type_system::{BaseType, TypeQualifier};
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DiagnosticCode {
+    Custom(String),
+    CertC(String),
+    CweC(u32),
+    MisraC { directive: u8, rule: u8 },
+}
+
+impl std::fmt::Display for DiagnosticCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DiagnosticCode::Custom(code) => write!(f, "{}", code),
+            DiagnosticCode::CertC(rule) => write!(f, "CERT-C:{}", rule),
+            DiagnosticCode::CweC(id) => write!(f, "CWE-{}", id),
+            DiagnosticCode::MisraC { directive, rule } => write!(f, "MISRA-C:D{}.R{}", directive, rule),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostic {
     pub span: Span,
     pub severity: DiagnosticSeverity,
     pub message: String,
-    pub code: String,
+    pub code: DiagnosticCode,
+    pub notes: Vec<String>,
+}
+
+impl Diagnostic {
+    pub fn new(span: Span, severity: DiagnosticSeverity, message: String, code: DiagnosticCode) -> Self {
+        Diagnostic {
+            span,
+            severity,
+            message,
+            code,
+            notes: Vec::new(),
+        }
+    }
+
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,6 +75,9 @@ pub struct DiagnosticConfig {
     pub project_root: Option<PathBuf>, // プロジェクトルート
     pub source_path: Option<PathBuf>, // 診断対象ファイル
     pub exclude_paths: Vec<PathBuf>, // 診断を適用しないパス（プロジェクトルートからの相対パスを推奨）
+    pub check_cert_c: bool,
+    pub check_cwe_c: bool,
+    pub check_misra_c: bool,
 }
 
 impl Default for DiagnosticConfig {
@@ -60,6 +100,9 @@ impl Default for DiagnosticConfig {
             project_root: None,
             source_path: None,
             exclude_paths: Vec::new(),
+            check_cert_c: true,
+            check_cwe_c: true,
+            check_misra_c: true,
         }
     }
 }
@@ -108,30 +151,30 @@ fn check_project_structure(config: &DiagnosticConfig) -> Vec<Diagnostic> {
     if config.check_include_dir {
         let include_dir = root.join("include");
         if !include_dir.is_dir() {
-            diagnostics.push(Diagnostic {
-                span: Span::new(0, 0, 0, 0),
-                severity: DiagnosticSeverity::Warning,
-                message: format!(
+            diagnostics.push(Diagnostic::new(
+                Span::new(0, 0, 0, 0),
+                DiagnosticSeverity::Warning,
+                format!(
                     "プロジェクトルートに include ディレクトリが見つかりません: {}",
                     include_dir.display()
                 ),
-                code: "CGH011".to_string(),
-            });
+                DiagnosticCode::Custom("CGH011".to_string()),
+            ));
         }
     }
 
     if config.check_src_dir {
         let src_dir = root.join("src");
         if !src_dir.is_dir() {
-            diagnostics.push(Diagnostic {
-                span: Span::new(0, 0, 0, 0),
-                severity: DiagnosticSeverity::Warning,
-                message: format!(
+            diagnostics.push(Diagnostic::new(
+                Span::new(0, 0, 0, 0),
+                DiagnosticSeverity::Warning,
+                format!(
                     "プロジェクトルートに src ディレクトリが見つかりません: {}",
                     src_dir.display()
                 ),
-                code: "CGH012".to_string(),
-            });
+                DiagnosticCode::Custom("CGH012".to_string()),
+            ));
         }
     }
 
@@ -193,7 +236,17 @@ pub fn diagnose_with_source(tu: &TranslationUnit, config: &DiagnosticConfig, sou
         diagnostics.extend(check_indent_style(source, &config.indent_style, config.indent_width));
     }
     
-    // 今後、他のチェックもここに追加
+    if config.check_cert_c {
+        diagnostics.extend(check_cert_c(tu, source));
+    }
+    
+    if config.check_cwe_c {
+        diagnostics.extend(check_cwe_c(tu, source));
+    }
+    
+    if config.check_misra_c {
+        diagnostics.extend(check_misra_c(tu, source));
+    }
     
     diagnostics
 }
@@ -237,12 +290,12 @@ fn check_file_header(tu: &TranslationUnit) -> Option<Diagnostic> {
             byte_end_idx: 0,
         });
         
-        return Some(Diagnostic {
+        return Some(Diagnostic::new(
             span,
-            severity: DiagnosticSeverity::Warning,
-            message: "File header comment is missing. Expected comment block with Author, Date, and Purpose fields.".to_string(),
-            code: "CGH001".to_string(),
-        });
+            DiagnosticSeverity::Warning,
+            "File header comment is missing. Expected comment block with Author, Date, and Purpose fields.".to_string(),
+            DiagnosticCode::Custom("CGH001".to_string()),
+        ));
     }
     
     None
@@ -288,15 +341,15 @@ fn check_function_format(tu: &TranslationUnit) -> Vec<Diagnostic> {
                 
                 // チェック1: 関数名の行に開き括弧 '{' が含まれているか
                 if fn_line.contains('{') {
-                    diagnostics.push(Diagnostic {
-                        span: span.clone(),
-                        severity: DiagnosticSeverity::Warning,
-                        message: format!(
+                    diagnostics.push(Diagnostic::new(
+                        span.clone(),
+                        DiagnosticSeverity::Warning,
+                        format!(
                             "Function '{}' opening brace should be on a separate line.",
                             function_name
                         ),
-                        code: "CGH002".to_string(),
-                    });
+                        DiagnosticCode::Custom("CGH002".to_string()),
+                    ));
                 }
                 
                 // チェック2: 戻り値の型と関数名が同じ行にあるか
@@ -309,15 +362,15 @@ fn check_function_format(tu: &TranslationUnit) -> Vec<Diagnostic> {
                 };
                 
                 if has_return_type_on_same_line {
-                    diagnostics.push(Diagnostic {
-                        span: span.clone(),
-                        severity: DiagnosticSeverity::Warning,
-                        message: format!(
+                    diagnostics.push(Diagnostic::new(
+                        span.clone(),
+                        DiagnosticSeverity::Warning,
+                        format!(
                             "Function '{}' name should be on a separate line from the return type.",
                             function_name
                         ),
-                        code: "CGH002".to_string(),
-                    });
+                        DiagnosticCode::Custom("CGH002".to_string()),
+                    ));
                 }
             }
         }
@@ -335,59 +388,59 @@ fn check_type_safety(tu: &TranslationUnit) -> Vec<Diagnostic> {
             if let Some(ty) = var_type {
                 // チェック1: void型の変数宣言（void*は除く）
                 if ty.base_type == BaseType::Void && !ty.is_pointer() {
-                    diagnostics.push(Diagnostic {
-                        span: span.clone(),
-                        severity: DiagnosticSeverity::Error,
-                        message: format!(
+                    diagnostics.push(Diagnostic::new(
+                        span.clone(),
+                        DiagnosticSeverity::Error,
+                        format!(
                             "変数 '{}' はvoid型にできません。voidポインタは 'void *' を使用してください。",
                             var_name
                         ),
-                        code: "CGH101".to_string(),
-                    });
+                        DiagnosticCode::Custom("CGH101".to_string()),
+                    ));
                 }
                 
                 // チェック2: ポインタのポインタのポインタ（***以上）の使用を警告
                 if ty.pointer_level() >= 3 {
-                    diagnostics.push(Diagnostic {
-                        span: span.clone(),
-                        severity: DiagnosticSeverity::Warning,
-                        message: format!(
+                    diagnostics.push(Diagnostic::new(
+                        span.clone(),
+                        DiagnosticSeverity::Warning,
+                        format!(
                             "変数 '{}' は{}段階のポインタです。設計を簡素化することを検討してください。",
                             var_name,
                             ty.pointer_level()
                         ),
-                        code: "CGH102".to_string(),
-                    });
+                        DiagnosticCode::Custom("CGH102".to_string()),
+                    ));
                 }
                 
                 // チェック3: 型情報がテキストと一致しているか簡易確認
                 // テキストにアスタリスクがあるのにポインタでない場合を検出
                 let asterisk_count = text.chars().filter(|&c| c == '*').count();
                 if asterisk_count > 0 && !ty.is_pointer() {
-                    diagnostics.push(Diagnostic {
-                        span: span.clone(),
-                        severity: DiagnosticSeverity::Warning,
-                        message: format!(
+                    diagnostics.push(Diagnostic::new(
+                        span.clone(),
+                        DiagnosticSeverity::Warning,
+                        format!(
                             "変数 '{}' の宣言に '*' が含まれていますが、型情報は非ポインタ型を示しています。型解析が失敗した可能性があります。",
                             var_name
                         ),
-                        code: "CGH103".to_string(),
-                    });
+                        DiagnosticCode::Custom("CGH103".to_string()),
+                    ));
                 }
                 
                 // チェック4: テキストのアスタリスク数とポインタレベルの不一致
                 if ty.is_pointer() && asterisk_count > 0 && asterisk_count != ty.pointer_level() {
-                    diagnostics.push(Diagnostic {
-                        span: span.clone(),
-                        severity: DiagnosticSeverity::Information,
-                        message: format!(
+                    diagnostics.push(Diagnostic::new(
+                        span.clone(),
+                        DiagnosticSeverity::Information,
+                        format!(
                             "変数 '{}' には{}個のアスタリスクがありますが、{}段階のポインタとして解析されました。複雑なポインタ構文の可能性があります。",
                             var_name,
                             asterisk_count,
                             ty.pointer_level()
                         ),
-                        code: "CGH104".to_string(),
-                    });
+                        DiagnosticCode::Custom("CGH104".to_string()),
+                    ));
                 }
             }
         }
@@ -430,16 +483,16 @@ fn check_macro_parentheses(tu: &TranslationUnit) -> Vec<Diagnostic> {
                             if contains_operator(macro_value) {
                                 // 括弧で囲まれているかチェック
                                 if !is_wrapped_in_parentheses(macro_value) {
-                                    diagnostics.push(Diagnostic {
-                                        span: span.clone(),
-                                        severity: DiagnosticSeverity::Warning,
-                                        message: format!(
+                                    diagnostics.push(Diagnostic::new(
+                                        span.clone(),
+                                        DiagnosticSeverity::Warning,
+                                        format!(
                                             "マクロ '{}' の置換値 '{}' は演算子を含んでいますが、括弧で囲まれていません。意図しない演算子の優先順位問題を避けるため、括弧で囲むことを推奨します。",
                                             macro_name,
                                             macro_value
                                         ),
-                                        code: "CGH005".to_string(),
-                                    });
+                                        DiagnosticCode::Custom("CGH005".to_string()),
+                                    ));
                                 }
                             }
                         }
@@ -534,16 +587,16 @@ fn check_global_var_naming(tu: &TranslationUnit) -> Vec<Diagnostic> {
             Item::VarDecl { span, var_name, var_type, .. } => {
                 // extern宣言やtypedefは除外（var_typeがあるものだけチェック）
                 if var_type.is_some() && !is_uppercase_with_underscores(var_name) {
-                    diagnostics.push(Diagnostic {
-                        span: span.clone(),
-                        severity: DiagnosticSeverity::Warning,
-                        message: format!(
+                    diagnostics.push(Diagnostic::new(
+                        span.clone(),
+                        DiagnosticSeverity::Warning,
+                        format!(
                             "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
                             var_name,
                             to_uppercase_with_underscores(var_name)
                         ),
-                        code: "CGH006".to_string(),
-                    });
+                        DiagnosticCode::Custom("CGH006".to_string()),
+                    ));
                 }
             },
             Item::StructDecl { span, text, variable_names, members, has_typedef, .. } => {
@@ -553,32 +606,32 @@ fn check_global_var_naming(tu: &TranslationUnit) -> Vec<Diagnostic> {
                     if variable_names.is_empty() && members.is_empty() {
                         if let Some(var_name) = extract_var_name_from_struct_decl(text) {
                             if !is_uppercase_with_underscores(&var_name) {
-                                diagnostics.push(Diagnostic {
-                                    span: span.clone(),
-                                    severity: DiagnosticSeverity::Warning,
-                                    message: format!(
+                                diagnostics.push(Diagnostic::new(
+                                    span.clone(),
+                                    DiagnosticSeverity::Warning,
+                                    format!(
                                         "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
                                         var_name,
                                         to_uppercase_with_underscores(&var_name)
                                     ),
-                                    code: "CGH006".to_string(),
-                                });
+                                    DiagnosticCode::Custom("CGH006".to_string()),
+                                ));
                             }
                         }
                     } else {
                         // variable_namesがある場合はそれをチェック
                         for var_name in variable_names {
                             if !is_uppercase_with_underscores(var_name) {
-                                diagnostics.push(Diagnostic {
-                                    span: span.clone(),
-                                    severity: DiagnosticSeverity::Warning,
-                                    message: format!(
+                                diagnostics.push(Diagnostic::new(
+                                    span.clone(),
+                                    DiagnosticSeverity::Warning,
+                                    format!(
                                         "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
                                         var_name,
                                         to_uppercase_with_underscores(var_name)
                                     ),
-                                    code: "CGH006".to_string(),
-                                });
+                                    DiagnosticCode::Custom("CGH006".to_string()),
+                                ));
                             }
                         }
                     }
@@ -591,32 +644,32 @@ fn check_global_var_naming(tu: &TranslationUnit) -> Vec<Diagnostic> {
                     if variable_names.is_empty() && variants.is_empty() {
                         if let Some(var_name) = extract_var_name_from_struct_decl(text) {
                             if !is_uppercase_with_underscores(&var_name) {
-                                diagnostics.push(Diagnostic {
-                                    span: span.clone(),
-                                    severity: DiagnosticSeverity::Warning,
-                                    message: format!(
+                                diagnostics.push(Diagnostic::new(
+                                    span.clone(),
+                                    DiagnosticSeverity::Warning,
+                                    format!(
                                         "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
                                         var_name,
                                         to_uppercase_with_underscores(&var_name)
                                     ),
-                                    code: "CGH006".to_string(),
-                                });
+                                    DiagnosticCode::Custom("CGH006".to_string()),
+                                ));
                             }
                         }
                     } else {
                         // variable_namesがある場合はそれをチェック
                         for var_name in variable_names {
                             if !is_uppercase_with_underscores(var_name) {
-                                diagnostics.push(Diagnostic {
-                                    span: span.clone(),
-                                    severity: DiagnosticSeverity::Warning,
-                                    message: format!(
+                                diagnostics.push(Diagnostic::new(
+                                    span.clone(),
+                                    DiagnosticSeverity::Warning,
+                                    format!(
                                         "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
                                         var_name,
                                         to_uppercase_with_underscores(var_name)
                                     ),
-                                    code: "CGH006".to_string(),
-                                });
+                                    DiagnosticCode::Custom("CGH006".to_string()),
+                                ));
                             }
                         }
                     }
@@ -629,32 +682,32 @@ fn check_global_var_naming(tu: &TranslationUnit) -> Vec<Diagnostic> {
                     if variable_names.is_empty() && members.is_empty() {
                         if let Some(var_name) = extract_var_name_from_struct_decl(text) {
                             if !is_uppercase_with_underscores(&var_name) {
-                                diagnostics.push(Diagnostic {
-                                    span: span.clone(),
-                                    severity: DiagnosticSeverity::Warning,
-                                    message: format!(
+                                diagnostics.push(Diagnostic::new(
+                                    span.clone(),
+                                    DiagnosticSeverity::Warning,
+                                    format!(
                                         "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
                                         var_name,
                                         to_uppercase_with_underscores(&var_name)
                                     ),
-                                    code: "CGH006".to_string(),
-                                });
+                                    DiagnosticCode::Custom("CGH006".to_string()),
+                                ));
                             }
                         }
                     } else {
                         // variable_namesがある場合はそれをチェック
                         for var_name in variable_names {
                             if !is_uppercase_with_underscores(var_name) {
-                                diagnostics.push(Diagnostic {
-                                    span: span.clone(),
-                                    severity: DiagnosticSeverity::Warning,
-                                    message: format!(
+                                diagnostics.push(Diagnostic::new(
+                                    span.clone(),
+                                    DiagnosticSeverity::Warning,
+                                    format!(
                                         "グローバル変数 '{}' は大文字とアンダースコアで命名することを推奨します。例: '{}'",
                                         var_name,
                                         to_uppercase_with_underscores(var_name)
                                     ),
-                                    code: "CGH006".to_string(),
-                                });
+                                    DiagnosticCode::Custom("CGH006".to_string()),
+                                ));
                             }
                         }
                     }
@@ -789,18 +842,18 @@ fn check_global_var_type_prefix(tu: &TranslationUnit) -> Vec<Diagnostic> {
                             format!("{}{}", prefix, var_name)
                         };
 
-                        diagnostics.push(Diagnostic {
-                            span: span.clone(),
-                            severity: DiagnosticSeverity::Warning,
-                            message: format!(
+                        diagnostics.push(Diagnostic::new(
+                            span.clone(),
+                            DiagnosticSeverity::Warning,
+                            format!(
                                 "型 '{}' のグローバル変数 '{}' は '{}' で始まることを推奨します。例: '{}'",
                                 type_name,
                                 var_name,
                                 prefix,
                                 suggested_name
                             ),
-                            code: "CGH007".to_string(),
-                        });
+                            DiagnosticCode::Custom("CGH007".to_string()),
+                        ));
                     }
                 }
             }
@@ -850,18 +903,18 @@ fn check_local_var_type_prefix(tu: &TranslationUnit) -> Vec<Diagnostic> {
                                     format!("{}{}", prefix, var_name)
                                 };
 
-                                diagnostics.push(Diagnostic {
-                                    span: span.clone(),
-                                    severity: DiagnosticSeverity::Warning,
-                                    message: format!(
+                                diagnostics.push(Diagnostic::new(
+                                    span.clone(),
+                                    DiagnosticSeverity::Warning,
+                                    format!(
                                         "型 '{}' のローカル変数 '{}' は '{}' で始まることを推奨します。例: '{}'",
                                         type_str,
                                         var_name,
                                         prefix,
                                         suggested_name
                                     ),
-                                    code: "CGH010".to_string(),
-                                });
+                                    DiagnosticCode::Custom("CGH010".to_string()),
+                                ));
                                 break;
                             }
                         }
@@ -911,29 +964,29 @@ fn check_preprocessor_indent(tu: &TranslationUnit) -> Vec<Diagnostic> {
                 Item::Define { span, .. } => {
                     // プリプロセッサディレクティブの前にスペースがあるかチェック
                     if span.start_column > 0 {
-                        diagnostics.push(Diagnostic {
-                            span: span.clone(),
-                            severity: DiagnosticSeverity::Warning,
-                            message: format!(
+                        diagnostics.push(Diagnostic::new(
+                            span.clone(),
+                            DiagnosticSeverity::Warning,
+                            format!(
                                 "プリプロセッサディレクティブの前にスペースがあります（{}文字）。行頭から始めてください。",
                                 span.start_column
                             ),
-                            code: "CGH008".to_string(),
-                        });
+                            DiagnosticCode::Custom("CGH008".to_string()),
+                        ));
                     }
                 },
                 Item::ConditionalBlock { start_span, items: nested_items, .. } => {
                     // ifdef/ifndef/if/elif/else/endifもチェック
                     if start_span.start_column > 0 {
-                        diagnostics.push(Diagnostic {
-                            span: start_span.clone(),
-                            severity: DiagnosticSeverity::Warning,
-                            message: format!(
+                        diagnostics.push(Diagnostic::new(
+                            start_span.clone(),
+                            DiagnosticSeverity::Warning,
+                            format!(
                                 "プリプロセッサディレクティブの前にスペースがあります（{}文字）。行頭から始めてください。",
                                 start_span.start_column
                             ),
-                            code: "CGH008".to_string(),
-                        });
+                            DiagnosticCode::Custom("CGH008".to_string()),
+                        ));
                     }
                     // ネストされたアイテムも再帰的にチェック
                     check_items(nested_items, diagnostics);
@@ -983,18 +1036,18 @@ fn check_indent_style(
                 byte_end_idx: leading_whitespace.len(),
             };
             
-            diagnostics.push(Diagnostic {
+            diagnostics.push(Diagnostic::new(
                 span,
-                severity: DiagnosticSeverity::Warning,
-                message: format!(
+                DiagnosticSeverity::Warning,
+                format!(
                     "インデントにタブとスペースが混在しています。{}のみを使用してください。",
                     match expected_style {
                         crate::config::IndentStyle::Tabs => "タブ",
                         crate::config::IndentStyle::Spaces => "スペース",
                     }
                 ),
-                code: "CGH009".to_string(),
-            });
+                DiagnosticCode::Custom("CGH009".to_string()),
+            ));
             continue;
         }
         
@@ -1011,12 +1064,12 @@ fn check_indent_style(
                         byte_end_idx: leading_whitespace.len(),
                     };
                     
-                    diagnostics.push(Diagnostic {
+                    diagnostics.push(Diagnostic::new(
                         span,
-                        severity: DiagnosticSeverity::Warning,
-                        message: "インデントにタブを使用すべきところでスペースが使われています。".to_string(),
-                        code: "CGH009".to_string(),
-                    });
+                        DiagnosticSeverity::Warning,
+                        "インデントにタブを使用すべきところでスペースが使われています。".to_string(),
+                        DiagnosticCode::Custom("CGH009".to_string()),
+                    ));
                 }
             }
             crate::config::IndentStyle::Spaces => {
@@ -1030,19 +1083,34 @@ fn check_indent_style(
                         byte_end_idx: leading_whitespace.len(),
                     };
                     
-                    diagnostics.push(Diagnostic {
+                    diagnostics.push(Diagnostic::new(
                         span,
-                        severity: DiagnosticSeverity::Warning,
-                        message: format!(
+                        DiagnosticSeverity::Warning,
+                        format!(
                             "インデントにスペース（{}文字単位）を使用すべきところでタブが使われています。",
                             indent_width
                         ),
-                        code: "CGH009".to_string(),
-                    });
+                        DiagnosticCode::Custom("CGH009".to_string()),
+                    ));
                 }
             }
         }
     }
     
+    diagnostics
+}
+
+fn check_cert_c(_tu: &TranslationUnit, _source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    diagnostics
+}
+
+fn check_cwe_c(_tu: &TranslationUnit, _source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    diagnostics
+}
+
+fn check_misra_c(_tu: &TranslationUnit, _source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
     diagnostics
 }

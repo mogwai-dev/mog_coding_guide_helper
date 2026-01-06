@@ -1,5 +1,5 @@
 use crate::ast::TranslationUnit;
-use crate::diagnostics::{diagnose, DiagnosticConfig};
+use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticCode};
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::trivia::Trivia;
@@ -18,8 +18,8 @@ fn warns_when_include_and_src_missing() {
     config.project_root = Some(temp.path().to_path_buf());
 
     let diagnostics = diagnose(&tu, &config);
-    assert!(diagnostics.iter().any(|d| d.code == "CGH011"));
-    assert!(diagnostics.iter().any(|d| d.code == "CGH012"));
+    assert!(diagnostics.iter().any(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH011")));
+    assert!(diagnostics.iter().any(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH012")));
 }
 
 #[test]
@@ -37,7 +37,7 @@ fn no_warning_when_include_and_src_exist() {
     config.project_root = Some(temp.path().to_path_buf());
 
     let diagnostics = diagnose(&tu, &config);
-    assert!(diagnostics.iter().all(|d| d.code != "CGH011" && d.code != "CGH012"));
+    assert!(diagnostics.iter().all(|d| !matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH011" || code == "CGH012")));
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn skips_diagnostics_for_excluded_paths() {
     base_config.source_path = Some(file_path.clone());
 
     let diagnostics = diagnose(&tu, &base_config);
-    assert!(diagnostics.iter().any(|d| d.code == "CGH006"));
+    assert!(diagnostics.iter().any(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")));
 
     let mut excluded_config = base_config.clone();
     excluded_config.exclude_paths = vec![excluded_dir];

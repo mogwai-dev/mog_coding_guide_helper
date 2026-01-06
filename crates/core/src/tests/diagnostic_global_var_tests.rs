@@ -1,6 +1,6 @@
 use crate::lexer::Lexer;
 use crate::parser::Parser;
-use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticSeverity};
+use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticSeverity, DiagnosticCode};
 
 #[test]
 fn test_global_var_lowercase() {
@@ -17,7 +17,7 @@ int globalVar = 10;
     let diagnostics = diagnose(&tu, &config);
     
     // CGH006の警告が出る
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 1);
     assert_eq!(var_warnings[0].severity, DiagnosticSeverity::Warning);
     assert!(var_warnings[0].message.contains("globalVar"));
@@ -39,7 +39,7 @@ int myGlobalVariable = 100;
     let diagnostics = diagnose(&tu, &config);
     
     // CGH006の警告が出る（MY_GLOBAL_VARIABLEを推奨）
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 1);
     assert!(var_warnings[0].message.contains("myGlobalVariable"));
     assert!(var_warnings[0].message.contains("MY_GLOBAL_VARIABLE"));
@@ -61,7 +61,7 @@ int MAX_SIZE = 100;
     let diagnostics = diagnose(&tu, &config);
     
     // 大文字なので警告なし
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 0);
 }
 
@@ -81,7 +81,7 @@ int test123 = 20;
     let diagnostics = diagnose(&tu, &config);
     
     // VALUE_123はOK、test123は警告
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 1);
     assert!(var_warnings[0].message.contains("test123"));
 }
@@ -103,7 +103,7 @@ int badVar = 3;
     let diagnostics = diagnose(&tu, &config);
     
     // 2つの警告（goodVar, badVar）
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 2);
 }
 
@@ -123,7 +123,7 @@ int globalVar = 10;
     let diagnostics = diagnose(&tu, &config);
     
     // 警告なし
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 0);
 }
 
@@ -142,7 +142,7 @@ int testVarName = 10;
     let diagnostics = diagnose(&tu, &config);
     
     // TEST_VAR_NAMEを推奨
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 1);
     assert!(var_warnings[0].message.contains("TEST_VAR_NAME"));
 }
@@ -168,7 +168,7 @@ struct Point MY_POINT;
     let diagnostics = diagnose(&tu, &config);
     
     // myPointは警告、MY_POINTはOK
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 1);
     assert!(var_warnings[0].message.contains("myPoint"));
     assert!(var_warnings[0].message.contains("MY_POINT"));
@@ -196,7 +196,7 @@ enum Color SELECTED_COLOR;
     let diagnostics = diagnose(&tu, &config);
     
     // currentColorは警告、SELECTED_COLORはOK
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 1);
     assert!(var_warnings[0].message.contains("currentColor"));
     assert!(var_warnings[0].message.contains("CURRENT_COLOR"));
@@ -223,7 +223,7 @@ union Data GLOBAL_DATA;
     let diagnostics = diagnose(&tu, &config);
     
     // myDataは警告、GLOBAL_DATAはOK
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 1);
     assert!(var_warnings[0].message.contains("myData"));
     assert!(var_warnings[0].message.contains("MY_DATA"));
@@ -256,7 +256,7 @@ typedef struct {
     let diagnostics = diagnose(&tu, &config);
     
     // typedef宣言なので警告なし（has_typedef = trueのため）
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 0);
 }
 
@@ -288,6 +288,6 @@ int MAX_VALUE;
     let diagnostics = diagnose(&tu, &config);
     
     // counter, position, colorが警告（3つ）、MAX_VALUEはOK
-    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH006").collect();
+    let var_warnings: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH006")).collect();
     assert_eq!(var_warnings.len(), 3);
 }

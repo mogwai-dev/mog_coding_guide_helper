@@ -1,5 +1,5 @@
 use crate::config::{IndentStyle, ProjectConfig};
-use crate::diagnostics::{diagnose_with_source, DiagnosticConfig};
+use crate::diagnostics::{diagnose_with_source, DiagnosticConfig, DiagnosticCode};
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 
@@ -23,7 +23,7 @@ void foo() {
     config.indent_style = IndentStyle::Tabs;
     
     let diagnostics = diagnose_with_source(&tu, &config, source);
-    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH009").collect();
+    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH009")).collect();
     
     // タブを使用しているので警告なし
     assert_eq!(cgh009_diagnostics.len(), 0);
@@ -49,7 +49,7 @@ void foo() {
     config.indent_style = IndentStyle::Tabs;
     
     let diagnostics = diagnose_with_source(&tu, &config, source);
-    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH009").collect();
+    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH009")).collect();
     
     // スペースを使用しているので警告が出る（4行分: lines 3,4,5,6）
     assert_eq!(cgh009_diagnostics.len(), 4);
@@ -77,7 +77,7 @@ void foo() {
     config.indent_width = 4;
     
     let diagnostics = diagnose_with_source(&tu, &config, source);
-    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH009").collect();
+    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH009")).collect();
     
     // スペースを使用しているので警告なし
     assert_eq!(cgh009_diagnostics.len(), 0);
@@ -104,7 +104,7 @@ void foo() {
     config.indent_width = 4;
     
     let diagnostics = diagnose_with_source(&tu, &config, source);
-    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH009").collect();
+    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH009")).collect();
     
     // タブを使用しているので警告が出る（4行分: lines 3,4,5,6）
     assert_eq!(cgh009_diagnostics.len(), 4);
@@ -125,7 +125,7 @@ fn test_indent_style_mixed_tabs_and_spaces() {
     config.indent_width = 4;
     
     let diagnostics = diagnose_with_source(&tu, &config, source);
-    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH009").collect();
+    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH009")).collect();
     
     // 混在しているので警告が出る
     assert_eq!(cgh009_diagnostics.len(), 1);
@@ -149,7 +149,7 @@ void foo() {
     config.indent_style = IndentStyle::Spaces;
     
     let diagnostics = diagnose_with_source(&tu, &config, source);
-    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| d.code == "CGH009").collect();
+    let cgh009_diagnostics: Vec<_> = diagnostics.iter().filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH009")).collect();
     
     // チェックが無効なので警告なし
     assert_eq!(cgh009_diagnostics.len(), 0);

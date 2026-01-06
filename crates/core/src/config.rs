@@ -259,6 +259,9 @@ impl ProjectConfig {
             project_root: None,
             source_path: None,
             exclude_paths: self.diagnostics.exclude_paths.clone(),
+            check_cert_c: true,
+            check_cwe_c: true,
+            check_misra_c: true,
         }
     }
 }

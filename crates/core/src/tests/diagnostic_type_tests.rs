@@ -1,6 +1,6 @@
 use crate::lexer::Lexer;
 use crate::parser::Parser;
-use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticSeverity};
+use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticSeverity, DiagnosticCode};
 
 #[test]
 fn test_void_variable_error() {
@@ -18,7 +18,7 @@ fn test_void_variable_error() {
     // Should have error for void variable
     assert!(diagnostics.iter().any(|d| 
         d.severity == DiagnosticSeverity::Error 
-        && d.code == "CGH101"
+        && matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH101")
         && d.message.contains("void型にできません")
     ));
 }
@@ -39,7 +39,7 @@ fn test_void_pointer_allowed() {
     // Should NOT have error for void pointer
     assert!(!diagnostics.iter().any(|d| 
         d.severity == DiagnosticSeverity::Error 
-        && d.code == "CGH101"
+        && matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH101")
     ));
 }
 
@@ -59,7 +59,7 @@ fn test_triple_pointer_warning() {
     // Should have warning for triple pointer
     assert!(diagnostics.iter().any(|d| 
         d.severity == DiagnosticSeverity::Warning 
-        && d.code == "CGH102"
+        && matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH102")
         && d.message.contains("3段階のポインタ")
     ));
 }
@@ -79,7 +79,7 @@ fn test_double_pointer_no_warning() {
     
     // Should NOT have warning for double pointer
     assert!(!diagnostics.iter().any(|d| 
-        d.code == "CGH102"
+        matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH102")
     ));
 }
 
@@ -98,5 +98,5 @@ fn test_type_safety_disabled() {
     let diagnostics = diagnose(&tu, &config);
     
     // Should NOT have type safety diagnostics when disabled
-    assert!(!diagnostics.iter().any(|d| d.code.starts_with("CGH1")));
+    assert!(!diagnostics.iter().any(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code.starts_with("CGH1"))));
 }

@@ -1,4 +1,4 @@
-use crate::diagnostics::{diagnose, DiagnosticConfig};
+use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticCode};
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 
@@ -32,7 +32,7 @@ fn warns_on_missing_prefix() {
     let diagnostics = diagnose(&tu, &local_prefix_config());
 
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].code, "CGH010");
+    assert!(matches!(diagnostics[0].code, DiagnosticCode::Custom(ref code) if code == "CGH010"));
     assert!(diagnostics[0].message.contains("u8_"));
     assert!(diagnostics[0].message.contains("counter"));
 }
@@ -76,5 +76,5 @@ fn handles_nested_blocks_and_for_init() {
     let diagnostics = diagnose(&tu, &local_prefix_config());
 
     assert_eq!(diagnostics.len(), 1);
-    assert!(diagnostics.iter().all(|d| d.code == "CGH010"));
+    assert!(diagnostics.iter().all(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH010")));
 }

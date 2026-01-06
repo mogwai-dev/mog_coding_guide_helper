@@ -171,7 +171,7 @@ impl Backend {
                         },
                     },
                     severity,
-                    code: Some(NumberOrString::String(diag.code.clone())),
+                    code: Some(NumberOrString::String(diag.code.to_string())),
                     source: Some("coding-guide-helper".to_string()),
                     message: diag.message.clone(),
                     ..Default::default()

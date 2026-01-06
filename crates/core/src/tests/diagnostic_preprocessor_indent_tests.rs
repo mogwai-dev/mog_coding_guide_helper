@@ -1,6 +1,6 @@
 use crate::lexer::Lexer;
 use crate::parser::Parser;
-use crate::diagnostics::{diagnose, DiagnosticConfig};
+use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticCode};
 
 #[test]
 fn test_preprocessor_indent_include() {
@@ -25,12 +25,12 @@ fn test_preprocessor_indent_include() {
     // デバッグ出力
     eprintln!("Diagnostics: {}", diagnostics.len());
     for d in &diagnostics {
-        eprintln!("  {}: {} at line {}, col {}", d.code, d.message, d.span.start_line, d.span.start_column);
+        eprintln!("  {:?}: {} at line {}, col {}", d.code, d.message, d.span.start_line, d.span.start_column);
     }
     
     // CGH008のみをフィルタリング
     let cgh008_diagnostics: Vec<_> = diagnostics.iter()
-        .filter(|d| d.code == "CGH008")
+        .filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH008"))
         .collect();
     
     assert_eq!(cgh008_diagnostics.len(), 1);
@@ -50,7 +50,7 @@ fn test_preprocessor_indent_define() {
     
     // CGH008のみをフィルタリング
     let cgh008_diagnostics: Vec<_> = diagnostics.iter()
-        .filter(|d| d.code == "CGH008")
+        .filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH008"))
         .collect();
     
     assert_eq!(cgh008_diagnostics.len(), 1);
@@ -70,7 +70,7 @@ fn test_preprocessor_indent_ifdef() {
     
     // CGH008のみをフィルタリング
     let cgh008_diagnostics: Vec<_> = diagnostics.iter()
-        .filter(|d| d.code == "CGH008")
+        .filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH008"))
         .collect();
     
     assert_eq!(cgh008_diagnostics.len(), 1);
@@ -90,11 +90,11 @@ fn test_preprocessor_indent_nested_ifdef() {
     
     // CGH008のみをフィルタリング（内側のifdefとendifの2つが警告）
     let cgh008_diagnostics: Vec<_> = diagnostics.iter()
-        .filter(|d| d.code == "CGH008")
+        .filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH008"))
         .collect();
     
     assert_eq!(cgh008_diagnostics.len(), 2);
-    assert!(cgh008_diagnostics.iter().all(|d| d.code == "CGH008"));
+    assert!(cgh008_diagnostics.iter().all(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH008")));
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn test_preprocessor_indent_correct() {
     
     // 正しい位置にあるので警告なし
     let preprocessor_warnings: Vec<_> = diagnostics.iter()
-        .filter(|d| d.code == "CGH008")
+        .filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH008"))
         .collect();
     assert_eq!(preprocessor_warnings.len(), 0);
 }
@@ -128,7 +128,7 @@ fn test_preprocessor_indent_mixed() {
     
     // 2つのdefineが警告されるはず
     let preprocessor_warnings: Vec<_> = diagnostics.iter()
-        .filter(|d| d.code == "CGH008")
+        .filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH008"))
         .collect();
     assert_eq!(preprocessor_warnings.len(), 2);
 }
@@ -147,7 +147,7 @@ fn test_preprocessor_indent_config_disabled() {
     
     // チェックが無効なので警告なし
     let preprocessor_warnings: Vec<_> = diagnostics.iter()
-        .filter(|d| d.code == "CGH008")
+        .filter(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH008"))
         .collect();
     assert_eq!(preprocessor_warnings.len(), 0);
 }

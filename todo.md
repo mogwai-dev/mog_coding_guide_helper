@@ -208,5 +208,38 @@ const 付きの型 VU8, VU16, VU32, VU64, VS8, VS16, VS32, VS64 のグローバ�
 
 ## 定数がある場合、警告を出す
 
+## C 言語の未定義挙動の抽出して、警告を出す
+
+## CERT-C / CWE-C / MISRA-C 診断エンジン実装
+
+### 基本診断エンジン (2026/01/07 済)
+- [x] DiagnosticEngine の基本構造を実装
+- [x] Diagnostic 型の定義（severity, code, message, span, notes）
+- [x] CERT-C / CWE-C / MISRA-C の診断コード体系を enum で定義
+- [x] DiagnosticCode enum (Custom, CertC, CweC, MisraC) を実装
+- [x] check_cert_c(), check_cwe_c(), check_misra_c() スタブ関数を実装
+- [x] DiagnosticConfig に check_cert_c, check_cwe_c, check_misra_c フラグを追加
+- [x] 既存の全テスト (296個) を DiagnosticCode enum に対応
+- [x] 新規テスト追加 (CERT-C, CWE-C, MISRA-C 各2テスト)
+- [x] 全 302 テスト成功確認
+
+### CERT-C 診断ルール
+- [ ] ARR32-C: 配列インデックス範囲外
+- [ ] MEM31-C: メモリ解放後の使用
+- [ ] STR31-C: 文字列バッファオーバーフロー
+- [ ] INT32-C: 整数オーバーフロー
+
+### CWE-C 診断ルール
+- [ ] CWE-120: バッファオーバーフロー
+- [ ] CWE-457: 未初期化変数の使用
+- [ ] CWE-476: NULL ポインタ参照
+- [ ] CWE-190: 整数オーバーフロー
+
+### MISRA-C 診断ルール
+- [ ] Rule 8.1: 型の明示的な宣言
+- [ ] Rule 9.1: 変数の初期化
+- [ ] Rule 14.3: 制御式の副作用禁止
+- [ ] Rule 17.7: 関数戻り値の未使用
+
 
 

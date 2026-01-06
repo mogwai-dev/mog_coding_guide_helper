@@ -1,6 +1,6 @@
 use crate::lexer::Lexer;
 use crate::parser::Parser;
-use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticSeverity};
+use crate::diagnostics::{diagnose, DiagnosticConfig, DiagnosticSeverity, DiagnosticCode};
 
 fn type_prefix_config(enable: bool) -> DiagnosticConfig {
     DiagnosticConfig {
@@ -45,11 +45,11 @@ fn test_type_prefix_vu8() {
     let diagnostics = diagnose(&tu, &config);
     println!("Diagnostics: {}", diagnostics.len());
     for d in &diagnostics {
-        println!("  {}: {}", d.code, d.message);
+        println!("  {:?}: {}", d.code, d.message);
     }
     
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].code, "CGH007");
+    assert!(matches!(diagnostics[0].code, DiagnosticCode::Custom(ref code) if code == "CGH007"));
     assert!(diagnostics[0].message.contains("VU8_"));
     assert!(diagnostics[0].message.contains("counter"));
 }
@@ -92,7 +92,7 @@ VS32 result;
     let diagnostics = diagnose(&tu, &config);
     
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].code, "CGH007");
+    assert!(matches!(diagnostics[0].code, DiagnosticCode::Custom(ref code) if code == "CGH007"));
     assert!(diagnostics[0].message.contains("VS32_"));
 }
 
@@ -113,7 +113,7 @@ CU8 byte;
     let diagnostics = diagnose(&tu, &config);
     
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].code, "CGH007");
+    assert!(matches!(diagnostics[0].code, DiagnosticCode::Custom(ref code) if code == "CGH007"));
     assert!(diagnostics[0].message.contains("CU8_"));
 }
 
@@ -134,7 +134,7 @@ CS64 long_val;
     let diagnostics = diagnose(&tu, &config);
     
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].code, "CGH007");
+    assert!(matches!(diagnostics[0].code, DiagnosticCode::Custom(ref code) if code == "CGH007"));
     assert!(diagnostics[0].message.contains("CS64_"));
 }
 
@@ -186,7 +186,7 @@ CU32 wrong_name;
     let diagnostics = diagnose(&tu, &config);
     
     assert_eq!(diagnostics.len(), 2);
-    assert!(diagnostics.iter().all(|d| d.code == "CGH007"));
+    assert!(diagnostics.iter().all(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH007")));
 }
 
 /// 該当しない型の場合は警告なし
@@ -295,7 +295,7 @@ const VS32 g_value;
     let diagnostics = diagnose(&tu, &type_prefix_config(true));
 
     assert_eq!(diagnostics.len(), 2);
-    assert!(diagnostics.iter().all(|d| d.code == "CGH007"));
+    assert!(diagnostics.iter().all(|d| matches!(d.code, DiagnosticCode::Custom(ref code) if code == "CGH007")));
     assert!(diagnostics.iter().any(|d| d.message.contains("CU8_")));
     assert!(diagnostics.iter().any(|d| d.message.contains("CS32_")));
 }

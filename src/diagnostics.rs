@@ -6,7 +6,8 @@ pub struct Diagnostic {
     pub span: Span,
     pub severity: DiagnosticSeverity,
     pub message: String,
-    pub code: String,
+    pub code: DiagnosticCode,
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -17,11 +18,71 @@ pub enum DiagnosticSeverity {
     Hint,
 }
 
+/// 診断コードの種類
+#[derive(Debug, Clone, PartialEq)]
+pub enum DiagnosticCode {
+    /// プロジェクト固有の診断コード（既存）
+    Custom(String),
+    
+    /// CERT-C 診断
+    CertC(String),  // 例: "ARR32-C"
+    
+    /// CWE-C 診断
+    CweC(u32),      // 例: 120 (CWE-120)
+    
+    /// MISRA-C 診断
+    MisraC { directive: u8, rule: u8 }, // 例: Directive 8, Rule 1
+}
+
+impl std::fmt::Display for DiagnosticCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DiagnosticCode::Custom(code) => write!(f, "{}", code),
+            DiagnosticCode::CertC(code) => write!(f, "CERT-{}", code),
+            DiagnosticCode::CweC(num) => write!(f, "CWE-{}", num),
+            DiagnosticCode::MisraC { directive, rule } => {
+                write!(f, "MISRA-C:2012 Dir {}.{}", directive, rule)
+            }
+        }
+    }
+}
+
+impl Diagnostic {
+    pub fn new(
+        severity: DiagnosticSeverity,
+        code: DiagnosticCode,
+        message: impl Into<String>,
+        span: Span,
+    ) -> Self {
+        Self {
+            severity,
+            code,
+            message: message.into(),
+            span,
+            notes: Vec::new(),
+        }
+    }
+
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DiagnosticConfig {
     pub check_file_header: bool,
     pub check_storage_class_order: bool,
     pub check_function_format: bool,
+    
+    // CERT-C チェック
+    pub check_cert_c: bool,
+    
+    // CWE-C チェック
+    pub check_cwe_c: bool,
+    
+    // MISRA-C チェック
+    pub check_misra_c: bool,
 }
 
 impl Default for DiagnosticConfig {
@@ -30,31 +91,20 @@ impl Default for DiagnosticConfig {
             check_file_header: true,
             check_storage_class_order: true,
             check_function_format: true,
+            check_cert_c: true,
+            check_cwe_c: true,
+            check_misra_c: true,
         }
     }
 }
 
 /// TranslationUnitに対して診断を実行
-pub fn diagnose(tu: &TranslationUnit, config: &DiagnosticConfig) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    
-    if config.check_file_header {
-        if let Some(diag) = check_file_header(tu) {
-            diagnostics.push(diag);
-        }
-    }
-    
-    if config.check_function_format {
-        diagnostics.extend(check_function_format(tu));
-    }
-    
-    // 今後、他のチェックもここに追加
-    
-    diagnostics
+pub fn diagnose(tu: &TranslationUnit, config: &DiagnosticConfig, source: &str) -> Vec<Diagnostic> {
+    diagnose_all(tu, source, config)
 }
 
 /// ファイルヘッダーコメントの存在をチェック
-fn check_file_header(tu: &TranslationUnit) -> Option<Diagnostic> {
+fn check_file_header(tu: &TranslationUnit, _source: &str) -> Option<Diagnostic> {
     use crate::trivia::Comment;
     
     // leading_triviaからブロックコメントを結合してチェック
@@ -179,4 +229,85 @@ fn check_function_format(tu: &TranslationUnit) -> Vec<Diagnostic> {
     }
     
     diagnostics
+}
+
+/// CERT-C 診断を実行
+/// 
+/// 実装予定のルール:
+/// - ARR32-C: Ensure size arguments for variable length arrays are in a valid range
+/// - MEM31-C: Free dynamically allocated memory when no longer needed
+/// - STR31-C: Guarantee that storage for strings has sufficient space for character data and the null terminator
+/// - INT32-C: Ensure that operations on signed integers do not result in overflow
+fn check_cert_c(tu: &TranslationUnit, _source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    
+    // TODO: CERT-C ルールの実装
+    // 現在は基本的なフレームワークのみ
+    
+    diagnostics
+}
+
+/// CWE-C 診断を実行
+/// 
+/// 実装予定のルール:
+/// - CWE-120: Buffer Copy without Checking Size of Input ('Classic Buffer Overflow')
+/// - CWE-457: Use of Uninitialized Variable
+/// - CWE-476: NULL Pointer Dereference
+/// - CWE-190: Integer Overflow or Wraparound
+fn check_cwe_c(tu: &TranslationUnit, _source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    
+    // TODO: CWE-C ルールの実装
+    // 現在は基本的なフレームワークのみ
+    
+    diagnostics
+}
+
+/// MISRA-C 診断を実行
+/// 
+/// 実装予定のルール:
+/// - Rule 8.1: Types shall be explicitly specified
+/// - Rule 9.1: The value of an object with automatic storage duration shall not be read before it has been set
+/// - Rule 14.3: Controlling expressions shall not be invariant
+/// - Rule 17.7: The value returned by a function having non-void return type shall be used
+fn check_misra_c(tu: &TranslationUnit, _source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    
+    // TODO: MISRA-C ルールの実装
+    // 現在は基本的なフレームワークのみ
+    
+    diagnostics
+}
+
+/// 診断エンジン: すべてのチェックを統合して実行
+pub fn diagnose_all(tu: &TranslationUnit, source: &str, config: &DiagnosticConfig) -> Vec<Diagnostic> {
+    let mut all_diagnostics = Vec::new();
+    
+    // CGH カスタムルールチェック
+    if config.check_file_header {
+        if let Some(diag) = check_file_header(tu, source) {
+            all_diagnostics.push(diag);
+        }
+    }
+    
+    if config.check_function_format {
+        all_diagnostics.extend(check_function_format(tu));
+    }
+    
+    // CERT-C チェック
+    if config.check_cert_c {
+        all_diagnostics.extend(check_cert_c(tu, source));
+    }
+    
+    // CWE-C チェック
+    if config.check_cwe_c {
+        all_diagnostics.extend(check_cwe_c(tu, source));
+    }
+    
+    // MISRA-C チェック
+    if config.check_misra_c {
+        all_diagnostics.extend(check_misra_c(tu, source));
+    }
+    
+    all_diagnostics
 }
