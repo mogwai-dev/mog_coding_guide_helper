@@ -15,11 +15,8 @@ export function activate(context: ExtensionContext) {
   let serverPath = config.get<string>('serverPath');
   
   if (!serverPath) {
-    // デフォルトパス（ワークスペースルートから相対）
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (workspaceRoot) {
-      serverPath = path.join(workspaceRoot, 'target', 'debug', 'coding-guide-helper-lsp.exe');
-    }
+    // 拡張機能にバンドルされた実行ファイルを使用
+    serverPath = path.join(context.extensionPath, 'bin', 'coding-guide-helper-lsp.exe');
   }
   
   if (!serverPath) {

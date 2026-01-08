@@ -4,6 +4,15 @@
   "description": "C language coding guide checker and formatter",
   "version": "0.1.0",
   "publisher": "mogwai-dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mogwai-dev/coding-guide-helper"
+  },
+  "files": [
+    "out/**/*",
+    "bin/**/*",
+    "node_modules/**/*"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -42,7 +51,8 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run build:lsp && npm run compile",
+    "build:lsp": "cd ../.. && cargo build --release --package coding-guide-helper-lsp && cd editors/vscode && node -e \"const fs=require('fs'),path=require('path');fs.mkdirSync('bin',{recursive:true});fs.copyFileSync('../../target/release/coding-guide-helper-lsp.exe','bin/coding-guide-helper-lsp.exe')\"",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./"
   },

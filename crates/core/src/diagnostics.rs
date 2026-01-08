@@ -366,8 +366,8 @@ fn check_function_format(tu: &TranslationUnit) -> Vec<Diagnostic> {
                         span.clone(),
                         DiagnosticSeverity::Warning,
                         format!(
-                            "Function '{}' name should be on a separate line from the return type.",
-                            function_name
+                            "関数 '{}' の名前は戻り値の型とは別の行に記述してください。\n例: int\n    {}(...)",
+                            function_name, function_name
                         ),
                         DiagnosticCode::Custom("CGH002".to_string()),
                     ));

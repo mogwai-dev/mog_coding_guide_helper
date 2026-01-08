@@ -2,6 +2,20 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::fs;
 
+/// Windows拡張パスプレフィックス (\\?\) を削除
+#[cfg(windows)]
+fn strip_extended_path_prefix(path: PathBuf) -> PathBuf {
+    path.to_string_lossy()
+        .strip_prefix(r"\\?\")
+        .map(PathBuf::from)
+        .unwrap_or(path)
+}
+
+#[cfg(not(windows))]
+fn strip_extended_path_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
 /// プロジェクト設定ファイル (coding-guide.toml)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
@@ -182,8 +196,8 @@ impl ProjectConfig {
 
     /// 設定ファイルを検索してプロジェクトルート情報付きで返す
     pub fn find_and_load_with_root<P: AsRef<Path>>(start_dir: P) -> LoadedProjectConfig {
-        let mut current = start_dir.as_ref().to_path_buf();
-        let mut last_valid_root = current.clone();
+        let start_path = start_dir.as_ref().to_path_buf();
+        let mut current = start_path.clone();
         
         loop {
             let config_path = current.join("coding-guide.toml");
@@ -197,6 +211,7 @@ impl ProjectConfig {
                             .unwrap_or_else(|| current.clone());
                         let project_root = project_root
                             .canonicalize()
+                            .map(strip_extended_path_prefix)
                             .unwrap_or(project_root);
 
                         return LoadedProjectConfig {
@@ -209,6 +224,7 @@ impl ProjectConfig {
                         eprintln!("Using default configuration");
                         let project_root = current
                             .canonicalize()
+                            .map(strip_extended_path_prefix)
                             .unwrap_or(current.clone());
 
                         return LoadedProjectConfig {
@@ -224,14 +240,13 @@ impl ProjectConfig {
                 // ルートディレクトリに到達
                 break;
             }
-
-            last_valid_root = current.clone();
         }
         
-        // 見つからない場合はデフォルト
-        let project_root = last_valid_root
+        // 見つからない場合は開始ディレクトリをプロジェクトルートとして使用
+        let project_root = start_path
             .canonicalize()
-            .unwrap_or(last_valid_root);
+            .map(strip_extended_path_prefix)
+            .unwrap_or(start_path);
 
         LoadedProjectConfig {
             config: Self::default(),
@@ -390,5 +405,61 @@ include_paths = ["deps/include"]
         assert_eq!(config.diagnostics.exclude_paths.len(), 2);
         assert!(!config.diagnostics.check_include_dir);
         assert_eq!(config.preprocessor.include_paths, vec![PathBuf::from("deps/include")]);
+    }
+
+    #[test]
+    fn test_find_and_load_with_root_no_config() {
+        // 一時ディレクトリを作成
+        let temp_dir = std::env::temp_dir().join("coding_guide_test_no_config");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // 設定ファイルが存在しない場合、開始ディレクトリがプロジェクトルートになることを確認
+        let loaded = ProjectConfig::find_and_load_with_root(&temp_dir);
+        
+        // 正規化されたパスを比較
+        let expected_root = temp_dir.canonicalize().unwrap();
+        let actual_root = loaded.project_root.canonicalize().unwrap_or(loaded.project_root.clone());
+        
+        assert_eq!(actual_root, expected_root, 
+            "Project root should be the start directory when no config is found. Expected: {:?}, Got: {:?}",
+            expected_root, actual_root);
+
+        // クリーンアップ
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_find_and_load_with_root_with_config() {
+        use std::io::Write;
+
+        // 一時ディレクトリを作成
+        let temp_dir = std::env::temp_dir().join("coding_guide_test_with_config");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // サブディレクトリを作成
+        let sub_dir = temp_dir.join("src");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+
+        // プロジェクトルートに設定ファイルを作成
+        let config_path = temp_dir.join("coding-guide.toml");
+        let mut file = std::fs::File::create(&config_path).unwrap();
+        file.write_all(b"[diagnostics]\ncheck_file_header = false\n").unwrap();
+
+        // サブディレクトリから開始しても、設定ファイルがあるディレクトリがプロジェクトルートになることを確認
+        let loaded = ProjectConfig::find_and_load_with_root(&sub_dir);
+        
+        // 正規化されたパスを比較
+        let expected_root = temp_dir.canonicalize().unwrap();
+        let actual_root = loaded.project_root.canonicalize().unwrap_or(loaded.project_root.clone());
+        
+        assert_eq!(actual_root, expected_root,
+            "Project root should be where the config file is found. Expected: {:?}, Got: {:?}",
+            expected_root, actual_root);
+        assert!(!loaded.config.diagnostics.check_file_header);
+
+        // クリーンアップ
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

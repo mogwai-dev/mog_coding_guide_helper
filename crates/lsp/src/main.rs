@@ -44,14 +44,6 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
-                diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
-                    DiagnosticOptions {
-                        identifier: Some("coding-guide-helper".to_string()),
-                        inter_file_dependencies: false,
-                        workspace_diagnostics: false,
-                        work_done_progress_options: WorkDoneProgressOptions::default(),
-                    },
-                )),
                 document_formatting_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
@@ -145,8 +137,21 @@ impl Backend {
         let tu = parser.parse();
         
         // プロジェクト設定から診断設定を取得
-        let config = config.to_diagnostic_config_with_path(source_path.as_ref());
-        let diagnostics = diagnose(&tu, &config);
+        let diag_config = config.to_diagnostic_config_with_path(source_path.as_ref());
+        
+        // デバッグ用ログ
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!(
+                    "Diagnosing file: {:?}, Project root: {:?}",
+                    source_path,
+                    diag_config.project_root
+                ),
+            )
+            .await;
+        
+        let diagnostics = diagnose(&tu, &diag_config);
         
         // LSP Diagnosticに変換
         let lsp_diagnostics: Vec<Diagnostic> = diagnostics
